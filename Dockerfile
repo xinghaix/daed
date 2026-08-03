@@ -4,14 +4,13 @@ WORKDIR /build
 
 COPY . .
 
-RUN corepack enable
-RUN corepack prepare pnpm@latest --activate
+RUN npm install --global pnpm@10.24.0
 RUN pnpm install
 RUN pnpm build
 
 
 
-FROM golang:1.22-bookworm AS build-bundle
+FROM golang:1.26-bookworm AS build-bundle
 
 RUN \
     apt-get update; apt-get install -y git make llvm-15 clang-15; \
