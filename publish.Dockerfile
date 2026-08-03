@@ -13,11 +13,18 @@ RUN \
 # build bundle process
 ENV CGO_ENABLED=0
 ARG DAED_VERSION
+ARG WING_BRANCH=main
+ARG DAE_BRANCH=main
 
 WORKDIR /build
 
 COPY ./apps/web/dist/ ./web/
-COPY ./wing/ ./wing/
+
+# Build against the requested branches instead of the revisions pinned by the submodules.
+RUN git clone --depth=1 --branch="${WING_BRANCH}" https://github.com/daeuniverse/dae-wing.git ./wing && \
+    rm -rf ./wing/dae-core && \
+    git clone --depth=1 --branch="${DAE_BRANCH}" --recurse-submodules --shallow-submodules \
+      https://github.com/daeuniverse/dae.git ./wing/dae-core
 
 WORKDIR /build/wing
 

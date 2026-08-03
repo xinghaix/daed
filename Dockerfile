@@ -21,9 +21,18 @@ RUN \
 ENV CGO_ENABLED=0
 ENV CLANG=clang-15
 ARG DAED_VERSION=self-build
+ARG WING_BRANCH=main
+ARG DAE_BRANCH=main
 
-COPY --from=build-web /build/apps/web/dist /build/web
-COPY --from=build-web /build/wing /build/wing
+WORKDIR /build
+
+COPY --from=build-web /build/apps/web/dist ./web
+
+# Build against the requested branches instead of the revisions pinned by the submodules.
+RUN git clone --depth=1 --branch="${WING_BRANCH}" https://github.com/daeuniverse/dae-wing.git ./wing && \
+    rm -rf ./wing/dae-core && \
+    git clone --depth=1 --branch="${DAE_BRANCH}" --recurse-submodules --shallow-submodules \
+      https://github.com/daeuniverse/dae.git ./wing/dae-core
 
 WORKDIR /build/wing
 

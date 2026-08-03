@@ -169,7 +169,9 @@ git clone https://github.com/daeuniverse/daed --recursive
 docker build -t daed .
 ```
 
-> **Note:** Docker support is currently available for i386, amd64, armv7, and arm64 architectures. See [discussion #291](https://github.com/daeuniverse/daed/discussions/291) for details.
+> **Note:** Image builds fetch the latest `main` branch from both `dae-wing` and `dae` by default. Override the branches with `--build-arg WING_BRANCH=<branch>` and `--build-arg DAE_BRANCH=<branch>` when needed.
+>
+> Docker support is currently available for i386, amd64, armv7, and arm64 architectures. See [discussion #291](https://github.com/daeuniverse/daed/discussions/291) for details.
 
 ---
 
