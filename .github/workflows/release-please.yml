@@ -2,12 +2,12 @@ name: Release Please
 
 on:
   push:
-    branches:
-      - main
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Release tag name (e.g. v1.26.0)'
+        description: 'Existing release tag to (re)build, e.g. v2.1.2'
         required: true
 
 concurrency:
@@ -22,21 +22,28 @@ permissions:
 
 jobs:
   release-please:
-    runs-on: macos-latest
+    # Releases are cut by pushing a vX.Y.Z tag (or re-run manually for an existing tag).
+    runs-on: ubuntu-latest
     outputs:
-      tag_name: ${{ steps.release.outputs['apps/web--tag_name'] || github.event.inputs.tag_name }}
-      release_created: ${{ steps.release.outputs['apps/web--release_created'] || (github.event_name == 'workflow_dispatch' && 'true') }}
+      tag_name: ${{ steps.tag.outputs.tag_name }}
+      release_created: 'true'
     steps:
-      - uses: googleapis/release-please-action@v5
-        id: release
-        if: ${{ github.event_name == 'push' }}
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve release tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag_name }}
+        run: |
+          tag="${INPUT_TAG:-$GITHUB_REF_NAME}"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "Invalid release tag: $tag" >&2
+            exit 1
+          fi
+          echo "tag_name=$tag" >> "$GITHUB_OUTPUT"
 
   # Update screenshots when a new release is created
   update-screenshots:
     needs: release-please
-    if: ${{ needs.release-please.outputs.release_created == 'true' && github.event_name == 'push' }}
+    if: ${{ false }} # screenshots are not regenerated for tag releases
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
