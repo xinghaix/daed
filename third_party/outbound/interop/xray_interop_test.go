@@ -1,6 +1,8 @@
 // Package interop checks the VMess/VLESS/Trojan WebSocket dialers (with and
 // without TLS and ?ed= early data, std TLS and uTLS) against a real Xray.
-// It is skipped unless XRAY_INTEROP=1. To run it:
+// It is skipped unless XRAY_INTEROP=1. Xray >= 26.5 blocks private targets
+// in freedom by default; testdata/xray-server.json allows 127.0.0.1 with
+// finalRules. Verified against Xray 26.3.27, 26.7.28 and 26.9.9. To run it:
 //
 //	cd testdata && xray tls cert --domain=example.com --file=cert && xray run -c xray-server.json &
 //	XRAY_INTEROP=1 go test ./interop/
