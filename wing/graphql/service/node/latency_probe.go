@@ -84,14 +84,17 @@ var fakeIPRange = netip.MustParsePrefix("198.18.0.0/15")
 
 // sanityNote flags results that cannot be a real round trip to a remote
 // server: a fake-ip address, or a near-zero RTT to a public address, which
-// means something on this host or LAN answered the SYN (a transparent proxy).
+// means something on this host or LAN answered the SYN. That is not dae:
+// dae skips its own process's sockets (pid check in its eBPF programs) even
+// when so_mark_from_dae is 0, so it is another transparent proxy such as
+// v2rayA on the same host, or a proxy on the gateway.
 func sanityNote(ip netip.Addr, latency time.Duration) string {
 	ip = ip.Unmap()
 	if fakeIPRange.Contains(ip) {
 		return fmt.Sprintf("resolved to %s (fake-ip range): a fake-ip DNS on the path answers for this server, so the probe does not reach it", ip)
 	}
 	if latency < 2*time.Millisecond && !ip.IsPrivate() && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() && !cgnatRange.Contains(ip) {
-		return fmt.Sprintf("suspiciously low for public address %s: the connection may be answered by a local or LAN transparent proxy", ip)
+		return fmt.Sprintf("suspiciously low for public address %s: the connection is likely answered by another transparent proxy on this host or the gateway (e.g. v2rayA, Clash/mihomo or a router proxy; dae never captures its own probes), so this result and the HTTP result through it are not direct", ip)
 	}
 	return ""
 }
