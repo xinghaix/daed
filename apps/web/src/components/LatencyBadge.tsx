@@ -1,5 +1,5 @@
 import type { NodeLatencyProbeResult } from '~/apis'
-import { Loader2 } from 'lucide-react'
+import { Loader2, TriangleAlert } from 'lucide-react'
 import { Fragment } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNodeLatencyLoading } from '~/apis'
@@ -8,7 +8,7 @@ import { cn } from '~/lib/utils'
 import { formatLatency, LATENCY_TONE_CLASS } from '~/utils/latency'
 
 /**
- * Shows a node's PING and HTTP latency as "102 ms, 525 ms", colored per
+ * Shows a node's handshake (TLS/TCP/QUIC) and HTTP latency as "102 ms, 525 ms", colored per
  * slot, with a spinner for slots being measured and the details (including
  * failure reasons) in a tooltip.
  */
@@ -46,7 +46,10 @@ export function LatencyBadge({
             {slot.loading ? (
               <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" aria-label={slot.detail} />
             ) : (
-              <span className={LATENCY_TONE_CLASS[slot.tone]}>{slot.text}</span>
+              <span className={cn('inline-flex items-center gap-0.5', LATENCY_TONE_CLASS[slot.tone])}>
+                {slot.text}
+                {slot.warning && <TriangleAlert className="h-3 w-3 text-amber-500" aria-label={slot.warning} />}
+              </span>
             )}
           </Fragment>
         ))}

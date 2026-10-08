@@ -9,15 +9,17 @@ import { QUERY_KEY_NODE_LATENCY } from '~/constants'
 import { useGQLQueryClient } from '~/contexts'
 import { latencyLoadingState } from '~/utils/latency'
 
-/** Result of one probe method (PING or HTTP). */
+/** Result of one probe method (handshake or HTTP). */
 export interface LatencyProbeResult {
+  /** TLS, TCP or QUIC for the handshake probe, HTTP for http; empty before the first result. */
+  method?: string | null
   ok: boolean
   latencyMs?: number | null
   message?: string | null
   testedAt?: string | null
   /** The method is being measured; the other fields hold the previous result. */
   pending: boolean
-  /** False when the method does not apply, e.g. PING for UDP-only protocols. */
+  /** False when the method does not apply, e.g. the handshake of an obfuscated QUIC node. */
   supported: boolean
 }
 
@@ -29,11 +31,12 @@ export interface NodeLatencyProbeResult {
   testedAt: string
   message?: string | null
   testing?: boolean
-  ping?: LatencyProbeResult | null
+  /** Direct handshake with the server: TLS, QUIC, or TCP connect (see method). */
+  handshake?: LatencyProbeResult | null
   http?: LatencyProbeResult | null
 }
 
-const PROBE_FIELDS = 'ok latencyMs message testedAt pending supported'
+const PROBE_FIELDS = 'method ok latencyMs message testedAt pending supported'
 export const NODE_LATENCY_FIELDS = `
   id
   latencyMs
@@ -41,7 +44,7 @@ export const NODE_LATENCY_FIELDS = `
   testedAt
   message
   testing
-  ping { ${PROBE_FIELDS} }
+  handshake { ${PROBE_FIELDS} }
   http { ${PROBE_FIELDS} }
 `
 
@@ -128,7 +131,11 @@ function markBaselines(ids: string[], current: NodeLatencyProbeResult[] | undefi
       continue
     }
     const result = byId.get(id)
-    next[id] = { ping: result?.ping?.testedAt ?? null, http: result?.http?.testedAt ?? null, refs: 1 }
+    next[id] = {
+      handshake: result?.handshake?.testedAt ?? null,
+      http: result?.http?.testedAt ?? null,
+      refs: 1,
+    }
   }
   latencyBaselinesAtom.set(next)
 }

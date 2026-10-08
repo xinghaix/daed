@@ -1,38 +1,55 @@
 import type { TFunction } from 'i18next'
 import type { LatencyProbeResult, NodeLatencyProbeResult } from '~/apis'
 
-export type LatencyMethod = 'ping' | 'http'
+export type LatencyMethod = 'handshake' | 'http'
 export type LatencyTone = 'good' | 'fair' | 'poor' | 'failed' | 'muted'
 
 export interface LatencySlotView {
   method: LatencyMethod
   /** Short text shown on the card, e.g. "102 ms" or "失败". */
   text: string
-  /** Tooltip text, e.g. "PING 102 ms" or "HTTP 失败: timeout". */
+  /** Tooltip text, e.g. "TLS 102 ms" or "HTTP 失败: timeout". */
   detail: string
   tone: LatencyTone
   loading: boolean
+  /** Warning or note attached to a successful result, e.g. a handshake answered locally. */
+  warning?: string
 }
 
 export interface LatencyView {
   slots: [LatencySlotView, LatencySlotView]
-  /** Card text, PING first: "102 ms, 525 ms". */
+  /** Card text, handshake first: "102 ms, 525 ms". */
   text: string
-  /** Tooltip: "PING 102 ms, HTTP 525 ms". */
+  /** Tooltip: "TLS 102 ms, HTTP 525 ms". */
   tooltip: string
 }
 
 export interface LatencyLoading {
-  ping?: boolean
+  handshake?: boolean
   http?: boolean
 }
 
-const METHOD_LABEL: Record<LatencyMethod, string> = { ping: 'PING', http: 'HTTP' }
+/** What a probe measured, as reported by the server (`probe.method`). */
+export type LatencyProbeKind = 'TLS' | 'TCP' | 'QUIC' | 'HTTP'
 
-/** Upper bounds (exclusive) for green and yellow, per method, in ms. */
-export const LATENCY_THRESHOLDS: Record<LatencyMethod, [good: number, fair: number]> = {
-  ping: [100, 250],
-  http: [400, 1000],
+/** Label used before the server reported which handshake ran. */
+const DEFAULT_LABEL: Record<LatencyMethod, LatencyProbeKind> = { handshake: 'TLS', http: 'HTTP' }
+
+export function latencyProbeKind(method: LatencyMethod, probe?: LatencyProbeResult | null): LatencyProbeKind {
+  const kind = probe?.method?.toUpperCase()
+  if (method === 'handshake' && (kind === 'TLS' || kind === 'TCP' || kind === 'QUIC')) return kind
+  return DEFAULT_LABEL[method]
+}
+
+/**
+ * Upper bounds (exclusive) for green and yellow, per probe kind, in ms. A TLS
+ * handshake over TCP costs two round trips; a TCP connect or QUIC handshake one.
+ */
+export const LATENCY_THRESHOLDS: Record<LatencyProbeKind, [good: number, fair: number]> = {
+  TLS: [200, 500],
+  TCP: [100, 250],
+  QUIC: [100, 250],
+  HTTP: [400, 1000],
 }
 
 export const LATENCY_TONE_CLASS: Record<LatencyTone, string> = {
@@ -43,8 +60,8 @@ export const LATENCY_TONE_CLASS: Record<LatencyTone, string> = {
   muted: 'text-muted-foreground',
 }
 
-export function latencyTone(method: LatencyMethod, latencyMs: number): LatencyTone {
-  const [good, fair] = LATENCY_THRESHOLDS[method]
+export function latencyTone(kind: LatencyProbeKind, latencyMs: number): LatencyTone {
+  const [good, fair] = LATENCY_THRESHOLDS[kind]
   if (latencyMs < good) return 'good'
   if (latencyMs < fair) return 'fair'
   return 'poor'
@@ -55,12 +72,13 @@ export function latencyProbe(result: NodeLatencyProbeResult | undefined, method:
   if (!result) return undefined
   const probe = result[method]
   if (probe) return probe
-  if (method === 'http' && result.ping === undefined && result.http === undefined && result.testedAt) {
+  if (method === 'http' && result.handshake === undefined && result.http === undefined && result.testedAt) {
     return {
       ok: result.alive,
       latencyMs: result.latencyMs,
       message: result.message,
       testedAt: result.testedAt,
+      method: 'HTTP',
       pending: false,
       supported: true,
     } satisfies LatencyProbeResult
@@ -74,7 +92,7 @@ export function describeLatencySlot(
   t: TFunction,
   loading = false,
 ): LatencySlotView {
-  const label = METHOD_LABEL[method]
+  const label = latencyProbeKind(method, probe)
   if (loading || (probe?.pending && !probe.testedAt)) {
     const testing = t('latency.testing')
     return { method, text: '…', detail: `${label} ${testing}`, tone: 'muted', loading: true }
@@ -87,14 +105,24 @@ export function describeLatencySlot(
     return {
       method,
       text: t('latency.notApplicableShort'),
-      detail: `${label} ${t('latency.notApplicable')}`,
+      detail: probe.message
+        ? `${label} ${t('latency.notApplicable')}: ${probe.message}`
+        : `${label} ${t('latency.notApplicable')}`,
       tone: 'muted',
       loading: false,
     }
   }
   if (probe.ok && typeof probe.latencyMs === 'number') {
     const text = `${probe.latencyMs} ms`
-    return { method, text, detail: `${label} ${text}`, tone: latencyTone(method, probe.latencyMs), loading: false }
+    const warning = probe.message || undefined
+    return {
+      method,
+      text,
+      detail: warning ? `${label} ${text} ⚠ ${warning}` : `${label} ${text}`,
+      tone: latencyTone(label, probe.latencyMs),
+      loading: false,
+      warning,
+    }
   }
   const failed = t('latency.failed')
   return {
@@ -107,8 +135,8 @@ export function describeLatencySlot(
 }
 
 /**
- * Formats a node's PING and HTTP results, e.g. card "102 ms, 失败" with tooltip
- * "PING 102 ms, HTTP 失败: HTTP 404". Returns undefined when there is nothing
+ * Formats a node's handshake and HTTP results, e.g. card "102 ms, 失败" with
+ * tooltip "TLS 102 ms, HTTP 失败: HTTP 404". Returns undefined when there is nothing
  * to show.
  */
 export function formatLatency(
@@ -116,15 +144,15 @@ export function formatLatency(
   t: TFunction,
   loading: LatencyLoading = {},
 ): LatencyView | undefined {
-  const ping = latencyProbe(result, 'ping')
+  const handshake = latencyProbe(result, 'handshake')
   const http = latencyProbe(result, 'http')
-  const pingLoading = Boolean(loading.ping || ping?.pending)
+  const handshakeLoading = Boolean(loading.handshake || handshake?.pending)
   const httpLoading = Boolean(loading.http || http?.pending)
-  if (!ping && !http && !pingLoading && !httpLoading) {
+  if (!handshake && !http && !handshakeLoading && !httpLoading) {
     return undefined
   }
   const slots: [LatencySlotView, LatencySlotView] = [
-    describeLatencySlot('ping', ping, t, pingLoading),
+    describeLatencySlot('handshake', handshake, t, handshakeLoading),
     describeLatencySlot('http', http, t, httpLoading),
   ]
   return {
@@ -147,7 +175,7 @@ export function formatLatencyLabel(result: NodeLatencyProbeResult | undefined, t
 
 /** testedAt of each method when a test was requested; a slot shows loading until it changes. */
 export interface LatencyBaseline {
-  ping: string | null
+  handshake: string | null
   http: string | null
   refs: number
 }
@@ -157,7 +185,9 @@ export function latencyLoadingState(
   result: NodeLatencyProbeResult | undefined,
 ): LatencyLoading {
   return {
-    ping: Boolean(result?.ping?.pending || (baseline && (result?.ping?.testedAt ?? null) === baseline.ping)),
+    handshake: Boolean(
+      result?.handshake?.pending || (baseline && (result?.handshake?.testedAt ?? null) === baseline.handshake),
+    ),
     http: Boolean(result?.http?.pending || (baseline && (result?.http?.testedAt ?? null) === baseline.http)),
   }
 }

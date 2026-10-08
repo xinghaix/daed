@@ -251,13 +251,13 @@
     "unavailable": "Unavailable",
     "testing": "testing…",
     "notTested": "not tested",
-    "notApplicable": "not applicable (UDP-only protocol)",
+    "notApplicable": "not applicable",
     "notApplicableShort": "N/A",
-    "testNode": "Test latency (PING / HTTP)",
+    "testNode": "Test latency (TLS / HTTP)",
     "testSubscription": "Test latency of all nodes in this subscription",
     "testGroup": "Test latency of all nodes in this group",
     "testFailed": "Latency test failed: {{ message }}",
-    "legend": "PING: direct TCP connect to the server; HTTP: request to the check URL through the node"
+    "legend": "TLS: direct TCP+TLS handshake with the server (QUIC for Hysteria2/TUIC/Juicity, TCP connect for plain-TCP and Reality nodes); HTTP: request to the check URL through the node"
   },
   "link": "Link",
   "logLevel": "Log Level",

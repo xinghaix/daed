@@ -185,15 +185,23 @@ export type InterfaceFlag = {
 export type LatencyProbe = {
   __typename?: 'LatencyProbe'
   latencyMs?: Maybe<Scalars['Int']['output']>
-  /** message explains a failure, e.g. "HTTP 404", "timeout". */
+  /**
+   * message explains a failure, e.g. "HTTP 404", "timeout". On success it
+   * may carry a warning, e.g. a handshake answered by a local transparent proxy.
+   */
   message?: Maybe<Scalars['String']['output']>
+  /**
+   * method is TLS, TCP or QUIC for the handshake probe and HTTP for http.
+   * Empty while a never-measured probe is pending.
+   */
+  method: Scalars['String']['output']
   ok: Scalars['Boolean']['output']
   /**
    * pending is true while this method is being measured; the other fields
    * then hold the previous result.
    */
   pending: Scalars['Boolean']['output']
-  /** supported is false when the method does not apply, e.g. PING for UDP-only protocols. */
+  /** supported is false when the method does not apply, e.g. the handshake of an obfuscated QUIC node. */
   supported: Scalars['Boolean']['output']
   testedAt?: Maybe<Scalars['Time']['output']>
 }
@@ -517,14 +525,18 @@ export type NodeImportResult = {
 export type NodeLatency = {
   __typename?: 'NodeLatency'
   alive: Scalars['Boolean']['output']
+  /**
+   * handshake is a direct (not proxied) handshake with the node's server:
+   * TLS for TLS nodes, QUIC for hysteria2/tuic/juicity, a TCP connect for
+   * plain-TCP and Reality nodes. probe.method says which one ran.
+   */
+  handshake?: Maybe<LatencyProbe>
   /** http is a request to the selected config's tcp_check_url through the node. */
   http?: Maybe<LatencyProbe>
   id: Scalars['ID']['output']
   /** latencyMs, alive, testedAt and message mirror the http probe. */
   latencyMs?: Maybe<Scalars['Int']['output']>
   message?: Maybe<Scalars['String']['output']>
-  /** ping is a direct TCP connect to the node's server (not proxied). */
-  ping?: Maybe<LatencyProbe>
   testedAt: Scalars['Time']['output']
   /** testing is true while a probe of this node is running. */
   testing: Scalars['Boolean']['output']
