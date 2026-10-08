@@ -1,0 +1,158 @@
+{
+ "log": {
+  "loglevel": "warning"
+ },
+ "inbounds": [
+  {
+   "port": 10001,
+   "listen": "127.0.0.1",
+   "protocol": "vmess",
+   "settings": {
+    "clients": [
+     {
+      "id": "8d4a4f5e-6b1c-4f67-9a3e-0f5b2b9c1d2e"
+     }
+    ]
+   },
+   "streamSettings": {
+    "network": "ws",
+    "wsSettings": {
+     "path": "/vm"
+    }
+   }
+  },
+  {
+   "port": 10002,
+   "listen": "127.0.0.1",
+   "protocol": "vless",
+   "settings": {
+    "clients": [
+     {
+      "id": "8d4a4f5e-6b1c-4f67-9a3e-0f5b2b9c1d2e"
+     }
+    ],
+    "decryption": "none"
+   },
+   "streamSettings": {
+    "network": "ws",
+    "wsSettings": {
+     "path": "/vl"
+    }
+   }
+  },
+  {
+   "port": 10003,
+   "listen": "127.0.0.1",
+   "protocol": "trojan",
+   "settings": {
+    "clients": [
+     {
+      "password": "dummy-pass"
+     }
+    ]
+   },
+   "streamSettings": {
+    "network": "ws",
+    "wsSettings": {
+     "path": "/tr"
+    }
+   }
+  },
+  {
+   "port": 10011,
+   "listen": "127.0.0.1",
+   "protocol": "vmess",
+   "settings": {
+    "clients": [
+     {
+      "id": "8d4a4f5e-6b1c-4f67-9a3e-0f5b2b9c1d2e"
+     }
+    ]
+   },
+   "streamSettings": {
+    "network": "ws",
+    "wsSettings": {
+     "path": "/vm"
+    },
+    "security": "tls",
+    "tlsSettings": {
+     "certificates": [
+      {
+       "certificateFile": "cert.crt",
+       "keyFile": "cert.key"
+      }
+     ],
+     "alpn": [
+      "http/1.1"
+     ]
+    }
+   }
+  },
+  {
+   "port": 10012,
+   "listen": "127.0.0.1",
+   "protocol": "vless",
+   "settings": {
+    "clients": [
+     {
+      "id": "8d4a4f5e-6b1c-4f67-9a3e-0f5b2b9c1d2e"
+     }
+    ],
+    "decryption": "none"
+   },
+   "streamSettings": {
+    "network": "ws",
+    "wsSettings": {
+     "path": "/vl"
+    },
+    "security": "tls",
+    "tlsSettings": {
+     "certificates": [
+      {
+       "certificateFile": "cert.crt",
+       "keyFile": "cert.key"
+      }
+     ],
+     "alpn": [
+      "http/1.1"
+     ]
+    }
+   }
+  },
+  {
+   "port": 10013,
+   "listen": "127.0.0.1",
+   "protocol": "trojan",
+   "settings": {
+    "clients": [
+     {
+      "password": "dummy-pass"
+     }
+    ]
+   },
+   "streamSettings": {
+    "network": "ws",
+    "wsSettings": {
+     "path": "/tr"
+    },
+    "security": "tls",
+    "tlsSettings": {
+     "certificates": [
+      {
+       "certificateFile": "cert.crt",
+       "keyFile": "cert.key"
+      }
+     ],
+     "alpn": [
+      "http/1.1"
+     ]
+    }
+   }
+  }
+ ],
+ "outbounds": [
+  {
+   "protocol": "freedom"
+  }
+ ]
+}
