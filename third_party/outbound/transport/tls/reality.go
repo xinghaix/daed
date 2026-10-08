@@ -42,10 +42,15 @@ import (
 	"golang.org/x/net/http2"
 )
 
+// The Xray client version announced in the Reality session ID. Xray
+// servers since 26.3 refuse clients older than their minClientVer, which
+// defaults to 26.3.27 (and keeps rising), treating them as probes and
+// forwarding to dest, so the client then fails on dest's certificate.
+// Announce a current release; servers set no maximum by default.
 var (
-	Reality_Version_x byte = 1
-	Reality_Version_y byte = 8
-	Reality_Version_z byte = 10
+	Reality_Version_x byte = 26
+	Reality_Version_y byte = 9
+	Reality_Version_z byte = 9
 )
 
 // realityHelloAttempts bounds how many ClientHellos the dialer generates before
