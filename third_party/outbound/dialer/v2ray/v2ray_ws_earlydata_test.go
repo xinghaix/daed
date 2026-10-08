@@ -106,3 +106,21 @@ func hexUUID(s string) ([]byte, error) {
 	}
 	return b, nil
 }
+
+func TestParseVlessURLAllowInsecure(t *testing.T) {
+	for link, want := range map[string]bool{
+		"vless://id@h:443?security=tls&allowInsecure=1#a":    true,
+		"vless://id@h:443?security=tls&allowInsecure=true#a": true,
+		"vless://id@h:443?security=tls&insecure=1#a":         true,
+		"vless://id@h:443?security=tls&allowInsecure=0#a":    false,
+		"vless://id@h:443?security=tls#a":                    false,
+	} {
+		s, err := v2ray.ParseVlessURL(link)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s.AllowInsecure != want {
+			t.Errorf("%s: AllowInsecure=%v want %v", link, s.AllowInsecure, want)
+		}
+	}
+}

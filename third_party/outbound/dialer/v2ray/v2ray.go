@@ -334,7 +334,7 @@ func ParseVlessURL(vless string) (data *V2Ray, err error) {
 		TLS:           u.Query().Get("security"),
 		Flow:          u.Query().Get("flow"),
 		Alpn:          u.Query().Get("alpn"),
-		AllowInsecure: false,
+		AllowInsecure: linkAllowInsecure(u.Query()),
 		Fingerprint:   u.Query().Get("fp"),
 		PublicKey:     u.Query().Get("pbk"),
 		ShortId:       u.Query().Get("sid"),
@@ -361,6 +361,19 @@ func ParseVlessURL(vless string) (data *V2Ray, err error) {
 		data.Path = u.Query().Get("seed")
 	}
 	return data, nil
+}
+
+// linkAllowInsecure reads the skip-verify flag of a share link. Clients
+// disagree on the key: v2rayN/Xray emit allowInsecure, sing-box and
+// Hysteria-style links use insecure, some converters allow_insecure.
+func linkAllowInsecure(q url.Values) bool {
+	for _, key := range []string{"allowInsecure", "insecure", "allow_insecure"} {
+		switch strings.ToLower(strings.TrimSpace(q.Get(key))) {
+		case "1", "true", "yes":
+			return true
+		}
+	}
+	return false
 }
 
 // vmessLegacyAddrRe parses the legacy vmess://BASE64 form's
