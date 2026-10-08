@@ -132,6 +132,7 @@ require (
 
 replace github.com/daeuniverse/dae => ./dae-core
 
-replace github.com/daeuniverse/outbound => github.com/olicesx/outbound v0.0.0-sticky-ip.0.20260918090140-cc86ced2e683
+// daed: use the outbound fork vendored in this repository (third_party/VERSIONS).
+replace github.com/daeuniverse/outbound => ../third_party/outbound
 
 // replace github.com/daeuniverse/dae => ../dae

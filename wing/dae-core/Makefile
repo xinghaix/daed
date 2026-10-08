@@ -109,9 +109,15 @@ dae: ebpf
 
 -include .gitmodules.d.mk
 
+# daed: the headers are vendored as plain files in daed, so only fall back to
+# `git submodule update` when the directory is actually empty.
 $(submodule_paths): .gitmodules.d.mk
-	git submodule update --init --recursive -- $@ && \
-	touch $@
+	@if [ -n "$$(ls -A $@ 2>/dev/null)" ]; then \
+		touch $@; \
+	else \
+		git submodule update --init --recursive -- $@ && \
+		touch $@; \
+	fi
 
 submodule submodules: $(submodule_paths)
 	@if [ -z "$(submodule_paths)" ]; then \

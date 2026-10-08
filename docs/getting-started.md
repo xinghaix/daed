@@ -165,11 +165,11 @@ docker compose up -d
 ### Build from Source
 
 ```bash
-git clone https://github.com/daeuniverse/daed --recursive
+git clone https://github.com/xinghaix/daed
 docker build -t daed .
 ```
 
-> **Note:** Image builds fetch the latest `main` branch from both `dae-wing` and `dae` by default. Override the branches with `--build-arg WING_BRANCH=<branch>` and `--build-arg DAE_BRANCH=<branch>` when needed.
+> **Note:** `dae-wing`, `dae` and the outbound library are vendored in this repository (`wing/`, `wing/dae-core/`, `third_party/outbound/`), so builds need no submodules or upstream clones. See [UPSTREAM.md](../UPSTREAM.md) for how they are synced.
 >
 > Docker support is currently available for i386, amd64, armv7, and arm64 architectures. See [discussion #291](https://github.com/daeuniverse/daed/discussions/291) for details.
 

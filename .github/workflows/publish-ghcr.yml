@@ -23,7 +23,6 @@ jobs:
         with:
           ref: main
           fetch-depth: 1
-          submodules: false
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
@@ -38,12 +37,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Resolve upstream commits
-        id: upstream
-        run: |
-          echo "WING_SHA=$(git ls-remote https://github.com/daeuniverse/dae-wing.git refs/heads/main | cut -f1)" >> "$GITHUB_OUTPUT"
-          echo "DAE_SHA=$(git ls-remote https://github.com/daeuniverse/dae.git refs/heads/main | cut -f1)" >> "$GITHUB_OUTPUT"
-
       - name: Build and push image
         uses: docker/build-push-action@v7
         with:
@@ -55,10 +48,6 @@ jobs:
           pull: true
           build-args: |
             DAED_VERSION=${{ github.sha }}
-            WING_BRANCH=main
-            DAE_BRANCH=main
-            WING_SHA=${{ steps.upstream.outputs.WING_SHA }}
-            DAE_SHA=${{ steps.upstream.outputs.DAE_SHA }}
           cache-from: type=gha,scope=publish-ghcr
           cache-to: type=gha,mode=max,scope=publish-ghcr
           tags: |

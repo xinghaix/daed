@@ -10,7 +10,7 @@ export default antfu(
     typescript: true,
     yaml: false,
     stylistic: false,
-    ignores: ['wing', 'apps/web/src/schemas/**'],
+    ignores: ['wing', 'third_party', 'apps/web/src/schemas/**'],
     rules: {
       'no-template-curly-in-string': 'off',
       // Allow exporting variants alongside components (shadcn pattern)

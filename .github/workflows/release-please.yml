@@ -96,7 +96,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          submodules: recursive
           ref: ${{ needs.release-please.outputs.tag_name }}
 
       - uses: actions/setup-go@v6
@@ -108,7 +107,6 @@ jobs:
 
       - name: Download wing vendor
         run: |
-          git submodule update --init --recursive
           export GOMODCACHE="${PWD}"/go-mod
           go mod download -modcacherw
           cd dae-core && go mod download -modcacherw && cd ..
@@ -229,7 +227,6 @@ jobs:
         with:
           ref: ${{ needs.release-please.outputs.tag_name }}
           fetch-depth: 0
-          submodules: recursive
 
       - uses: actions/setup-go@v6
         with:
@@ -458,7 +455,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          submodules: recursive
           ref: ${{ needs.release-please.outputs.tag_name }}
 
       - uses: actions/download-artifact@v8
@@ -529,19 +525,11 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.QUAY_PASS }}
 
-      - name: Resolve upstream commits
-        id: upstream
-        run: |
-          echo "WING_SHA=$(git ls-remote https://github.com/daeuniverse/dae-wing.git refs/heads/main | cut -f1)" >> "$GITHUB_OUTPUT"
-          echo "DAE_SHA=$(git ls-remote https://github.com/daeuniverse/dae.git refs/heads/main | cut -f1)" >> "$GITHUB_OUTPUT"
-
       - uses: docker/build-push-action@v7
         with:
           context: .
           build-args: |
             DAED_VERSION=${{ steps.prep.outputs.TAG }}
-            WING_SHA=${{ steps.upstream.outputs.WING_SHA }}
-            DAE_SHA=${{ steps.upstream.outputs.DAE_SHA }}
           builder: ${{ steps.buildx.outputs.name }}
           file: publish.Dockerfile
           target: prod

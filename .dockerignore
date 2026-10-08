@@ -1,4 +1,9 @@
+.git
 node_modules
-wing
-Dockerfile
-docker-compose.yml
+**/node_modules
+/dist
+/daed
+wing/webrender/web
+wing/daed
+wing/dae-wing
+wing/go-mod

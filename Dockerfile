@@ -1,8 +1,9 @@
+# syntax=docker/dockerfile:1
 FROM --platform=$BUILDPLATFORM node:alpine AS build-web
 
 WORKDIR /build
 
-COPY . .
+COPY --exclude=wing --exclude=third_party . .
 
 RUN npm install --global pnpm@10.24.0
 RUN pnpm install
@@ -13,7 +14,7 @@ RUN pnpm build
 FROM --platform=$BUILDPLATFORM golang:1.26-bookworm AS build-bundle
 
 RUN \
-    apt-get update && apt-get install -y git make llvm clang && \
+    apt-get update && apt-get install -y make llvm clang && \
     command -v clang && command -v llvm-strip && \
     apt-get clean autoclean && apt-get autoremove -y && rm -rf /var/lib/{apt,dpkg,cache,log}/
 
@@ -21,28 +22,20 @@ RUN \
 ENV CGO_ENABLED=0
 ENV CLANG=clang
 ARG DAED_VERSION=self-build
-ARG WING_BRANCH=main
-ARG DAE_BRANCH=main
 
 WORKDIR /build
 
 COPY --from=build-web /build/apps/web/dist ./web
 
-# Build against the requested branches instead of the revisions pinned by the submodules.
-# CI passes the resolved commits as WING_SHA/DAE_SHA so a cached clone is never reused after a branch moves.
-ARG WING_SHA=
-ARG DAE_SHA=
-RUN git clone --depth=1 --branch="${WING_BRANCH}" https://github.com/daeuniverse/dae-wing.git ./wing && \
-    if [ -n "${WING_SHA}" ]; then \
-      git -C ./wing fetch --depth=1 origin "${WING_SHA}" && git -C ./wing checkout -q "${WING_SHA}"; \
-    fi && \
-    rm -rf ./wing/dae-core && \
-    git clone --depth=1 --branch="${DAE_BRANCH}" https://github.com/daeuniverse/dae.git ./wing/dae-core && \
-    if [ -n "${DAE_SHA}" ]; then \
-      git -C ./wing/dae-core fetch --depth=1 origin "${DAE_SHA}" && git -C ./wing/dae-core checkout -q "${DAE_SHA}"; \
-    fi && \
-    git -C ./wing/dae-core submodule update --init --recursive --depth=1 && \
-    echo "dae-wing $(git -C ./wing rev-parse --short HEAD), dae $(git -C ./wing/dae-core rev-parse --short HEAD)"
+# dae-wing, dae and the outbound fork are vendored in this repository (see UPSTREAM.md).
+# Download Go modules in their own layer so source-only changes reuse it.
+COPY wing/go.mod wing/go.sum ./wing/
+COPY wing/dae-core/go.mod wing/dae-core/go.sum ./wing/dae-core/
+COPY third_party/outbound/go.mod third_party/outbound/go.sum ./third_party/outbound/
+RUN cd wing && go mod download
+
+COPY third_party ./third_party
+COPY wing ./wing
 
 WORKDIR /build/wing
 
