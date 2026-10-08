@@ -3,6 +3,7 @@ package ws
 import (
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"fmt"
 	"github.com/daeuniverse/outbound/pkg/coalesce"
 	"net"
@@ -45,6 +46,11 @@ type Ws struct {
 	fragmentMaxLength   int64
 	fragmentMinInterval int64
 	fragmentMaxInterval int64
+
+	// maxEarlyData > 0 enables Xray-style early data (ws path "?ed=N"),
+	// carried in the earlyDataHeader request header.
+	maxEarlyData    int
+	earlyDataHeader string
 }
 
 func (s *Ws) UnwrapDialer() netproxy.Dialer {
@@ -76,7 +82,16 @@ func NewWs(option *dialer.ExtraOption, nextDialer netproxy.Dialer, link string) 
 		Scheme: u.Scheme,
 		Host:   u.Host,
 	}
-	t.wsAddr = wsUrl.String() + u.Path
+	// The ws path may carry its own query (e.g. "/path?ed=2048" from Xray share
+	// links): keep it as the request query instead of escaping the '?' into the
+	// path, and take the early-data parameters out of it.
+	reqPath, reqQuery, maxEarlyData, earlyDataHeader := parseEarlyDataPath(u.Path)
+	t.maxEarlyData = maxEarlyData
+	t.earlyDataHeader = earlyDataHeader
+	reqUrl := wsUrl
+	reqUrl.Path = reqPath
+	reqUrl.RawQuery = reqQuery
+	t.wsAddr = reqUrl.String()
 	if u.Scheme == "wss" {
 		allowInsecure, _ := strconv.ParseBool(u.Query().Get("allowInsecure"))
 		if !allowInsecure {
@@ -128,38 +143,22 @@ func (s *Ws) DialContext(ctx context.Context, network, addr string) (c netproxy.
 	}
 	switch magicNetwork.Network {
 	case "tcp":
-		// Coalescer drains after each message write (conn.Write), and its
-		// Read side flushes before blocking, which covers the websocket
-		// handshake (HTTP upgrade request then response read).
-		var co *coalesce.Conn
-		wsDialer := &websocket.Dialer{
-			NetDial: func(_, addr string) (net.Conn, error) {
-				c, err := s.dialer.DialContext(ctx, network, addr)
-				if err != nil {
-					return nil, err
-				}
-
-				if s.tlsFragmentation {
-					c = transportTls.NewFragmentConn(c, s.fragmentMinLength, s.fragmentMaxLength, s.fragmentMinInterval, s.fragmentMaxInterval)
-				}
-
-				co = coalesce.New(&netproxy.FakeNetConn{
-					Conn:  c,
-					LAddr: nil,
-					RAddr: nil,
-				})
-				return co, nil
-			},
-			TLSClientConfig: s.tlsClientConfig,
+		if s.maxEarlyData > 0 {
+			// Defer the handshake until the first write so its beginning
+			// can ride in the upgrade request (Xray-compatible early data).
+			ec, err := newEarlyDataConn(ctx, s.maxEarlyData, func(ctx context.Context, earlyData []byte) (*conn, error) {
+				return s.dialWebsocket(ctx, network, earlyData)
+			})
+			if err != nil {
+				return nil, err
+			}
+			return ec, nil
 		}
-		rc, _, err := wsDialer.DialContext(ctx, s.wsAddr, s.header)
+		wc, err := s.dialWebsocket(ctx, network, nil)
 		if err != nil {
-			return nil, fmt.Errorf("[Ws]: dial to %s: %w", s.wsAddr, err)
+			return nil, err
 		}
-		if co != nil {
-			return newConnWithFlusher(rc, co), err
-		}
-		return newConn(rc), err
+		return wc, nil
 	case "udp":
 		if s.passthroughUdp {
 			return s.dialer.DialContext(ctx, network, addr)
@@ -168,4 +167,47 @@ func (s *Ws) DialContext(ctx context.Context, network, addr string) (c netproxy.
 	default:
 		return nil, fmt.Errorf("%w: %v", netproxy.UnsupportedTunnelTypeError, network)
 	}
+}
+
+// dialWebsocket dials the next hop and performs the WebSocket handshake. A
+// non-empty earlyData is sent base64url-encoded in the early-data header.
+func (s *Ws) dialWebsocket(ctx context.Context, network string, earlyData []byte) (*conn, error) {
+	// Coalescer drains after each message write (conn.Write), and its
+	// Read side flushes before blocking, which covers the websocket
+	// handshake (HTTP upgrade request then response read).
+	var co *coalesce.Conn
+	wsDialer := &websocket.Dialer{
+		NetDial: func(_, addr string) (net.Conn, error) {
+			c, err := s.dialer.DialContext(ctx, network, addr)
+			if err != nil {
+				return nil, err
+			}
+
+			if s.tlsFragmentation {
+				c = transportTls.NewFragmentConn(c, s.fragmentMinLength, s.fragmentMaxLength, s.fragmentMinInterval, s.fragmentMaxInterval)
+			}
+
+			co = coalesce.New(&netproxy.FakeNetConn{
+				Conn:  c,
+				LAddr: nil,
+				RAddr: nil,
+			})
+			return co, nil
+		},
+		TLSClientConfig: s.tlsClientConfig,
+	}
+	header := s.header
+	if len(earlyData) > 0 {
+		header = s.header.Clone()
+		// RawURLEncoding is what Xray and V2Fly servers decode.
+		header.Set(s.earlyDataHeader, base64.RawURLEncoding.EncodeToString(earlyData))
+	}
+	rc, _, err := wsDialer.DialContext(ctx, s.wsAddr, header)
+	if err != nil {
+		return nil, fmt.Errorf("[Ws]: dial to %s: %w", s.wsAddr, err)
+	}
+	if co != nil {
+		return newConnWithFlusher(rc, co), nil
+	}
+	return newConn(rc), nil
 }
