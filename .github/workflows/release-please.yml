@@ -529,10 +529,19 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.QUAY_PASS }}
 
+      - name: Resolve upstream commits
+        id: upstream
+        run: |
+          echo "WING_SHA=$(git ls-remote https://github.com/daeuniverse/dae-wing.git refs/heads/main | cut -f1)" >> "$GITHUB_OUTPUT"
+          echo "DAE_SHA=$(git ls-remote https://github.com/daeuniverse/dae.git refs/heads/main | cut -f1)" >> "$GITHUB_OUTPUT"
+
       - uses: docker/build-push-action@v7
         with:
           context: .
-          build-args: DAED_VERSION=${{ steps.prep.outputs.TAG }}
+          build-args: |
+            DAED_VERSION=${{ steps.prep.outputs.TAG }}
+            WING_SHA=${{ steps.upstream.outputs.WING_SHA }}
+            DAE_SHA=${{ steps.upstream.outputs.DAE_SHA }}
           builder: ${{ steps.buildx.outputs.name }}
           file: publish.Dockerfile
           target: prod
@@ -540,5 +549,5 @@ jobs:
           push: true
           load: true
           tags: ${{ steps.prep.outputs.TAGS }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=publish-release
+          cache-to: type=gha,mode=max,scope=publish-release
