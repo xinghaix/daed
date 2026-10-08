@@ -36,7 +36,7 @@ jobs:
   # Update screenshots when a new release is created
   update-screenshots:
     needs: release-please
-    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    if: ${{ needs.release-please.outputs.release_created == 'true' && github.event_name == 'push' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -420,6 +420,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Manual releases (workflow_dispatch) only push a tag, so create the release when it is missing.
+          if ! gh release view "$TAG_NAME" > /dev/null 2>&1; then
+              gh release create "$TAG_NAME" --verify-tag --title "$TAG_NAME" --generate-notes
+          fi
+
           # Parallel execution helper function
           parallel_exec() {
               local func_name="$1"
@@ -458,10 +463,30 @@ jobs:
         id: prep
         env:
           REF: ${{ needs.release-please.outputs.tag_name }}
+          REPO: ${{ github.repository }}
+          HAS_DOCKERHUB: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+          HAS_QUAY: ${{ secrets.QUAY_PASS != '' }}
         run: |
           tag=${REF:1}
-          echo "IMAGE=daeuniverse/daed" >> $GITHUB_OUTPUT
+          repo=$(echo "$REPO" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE=$repo" >> $GITHUB_OUTPUT
           echo "TAG=$tag" >> $GITHUB_OUTPUT
+          echo "HAS_DOCKERHUB=$HAS_DOCKERHUB" >> $GITHUB_OUTPUT
+          echo "HAS_QUAY=$HAS_QUAY" >> $GITHUB_OUTPUT
+          {
+            echo "TAGS<<EOF"
+            echo "ghcr.io/$repo:latest"
+            echo "ghcr.io/$repo:$tag"
+            if [ "$HAS_DOCKERHUB" = "true" ]; then
+              echo "$repo:latest"
+              echo "$repo:$tag"
+            fi
+            if [ "$HAS_QUAY" = "true" ]; then
+              echo "quay.io/$repo:latest"
+              echo "quay.io/$repo:$tag"
+            fi
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
 
       - uses: docker/setup-qemu-action@v4
 
@@ -479,6 +504,7 @@ jobs:
         id: buildx
 
       - uses: docker/login-action@v4
+        if: ${{ steps.prep.outputs.HAS_DOCKERHUB == 'true' }}
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -490,6 +516,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: docker/login-action@v4
+        if: ${{ steps.prep.outputs.HAS_QUAY == 'true' }}
         with:
           registry: quay.io
           username: ${{ github.repository_owner }}
@@ -505,12 +532,6 @@ jobs:
           platforms: linux/386,linux/amd64,linux/arm64
           push: true
           load: true
-          tags: |
-            ${{ github.repository }}:latest
-            ${{ github.repository }}:${{ steps.prep.outputs.TAG }}
-            ghcr.io/${{ github.repository }}:latest
-            ghcr.io/${{ github.repository }}:${{ steps.prep.outputs.TAG }}
-            quay.io/${{ github.repository }}:latest
-            quay.io/${{ github.repository }}:${{ steps.prep.outputs.TAG }}
+          tags: ${{ steps.prep.outputs.TAGS }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
