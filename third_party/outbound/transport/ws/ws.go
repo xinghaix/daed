@@ -202,8 +202,16 @@ func (s *Ws) dialWebsocket(ctx context.Context, network string, earlyData []byte
 		// RawURLEncoding is what Xray and V2Fly servers decode.
 		header.Set(s.earlyDataHeader, base64.RawURLEncoding.EncodeToString(earlyData))
 	}
-	rc, _, err := wsDialer.DialContext(ctx, s.wsAddr, header)
+	rc, resp, err := wsDialer.DialContext(ctx, s.wsAddr, header)
 	if err != nil {
+		if resp != nil {
+			if resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+			// Surface the server's answer (e.g. 403 from a CDN, 400 for a
+			// wrong path) instead of a bare "bad handshake".
+			return nil, fmt.Errorf("[Ws]: dial to %s: %w (HTTP %d)", s.wsAddr, err, resp.StatusCode)
+		}
 		return nil, fmt.Errorf("[Ws]: dial to %s: %w", s.wsAddr, err)
 	}
 	if co != nil {

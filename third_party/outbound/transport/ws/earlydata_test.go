@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -357,5 +358,17 @@ func TestWsEarlyDataDialError(t *testing.T) {
 	}
 	if _, err := c.Read(make([]byte, 1)); err == nil {
 		t.Fatal("Read() after a failed handshake succeeded")
+	}
+}
+
+func TestWsBadHandshakeReportsStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+	}))
+	t.Cleanup(srv.Close)
+	d := newTestWs(t, srv, "/p")
+	_, err := d.DialContext(context.Background(), "tcp", "example.com:80")
+	if err == nil || !errors.Is(err, websocket.ErrBadHandshake) || !strings.Contains(err.Error(), "(HTTP 403)") {
+		t.Fatalf("DialContext() error = %v, want bad handshake with HTTP 403", err)
 	}
 }
