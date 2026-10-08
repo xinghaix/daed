@@ -123,3 +123,33 @@ func TestConnRead_DoesNotWriteHeaderBeforeFirstReadForUDPClient(t *testing.T) {
 		t.Fatalf("unexpected write before first UDP payload: got %d bytes", raw.writes.Len())
 	}
 }
+
+type writeCounter struct {
+	splitCaptureConn
+	calls int
+}
+
+func (c *writeCounter) Write(p []byte) (int, error) { c.calls++; return c.splitCaptureConn.Write(p) }
+
+// The request header and the first payload must leave in one write so that
+// WebSocket early data carries the whole first request (as Xray does).
+func TestConnWrite_HeaderAndFirstPayloadInOneWrite(t *testing.T) {
+	baseMetadata, err := protocol.ParseMetadata("1.2.3.4:53")
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseMetadata.IsClient = true
+	for _, network := range []string{"tcp", "udp"} {
+		raw := &writeCounter{}
+		conn, err := NewConn(raw, Metadata{Metadata: baseMetadata, Network: network}, "test-password")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := conn.Write([]byte("dns-query")); err != nil {
+			t.Fatal(err)
+		}
+		if raw.calls != 1 || !bytes.HasSuffix(raw.writes.Bytes(), []byte("dns-query")) {
+			t.Fatalf("%s: %d writes, %q", network, raw.calls, raw.writes.Bytes())
+		}
+	}
+}

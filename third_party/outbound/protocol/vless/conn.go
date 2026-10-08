@@ -133,25 +133,45 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 	c.writeMutex.Lock()
 	defer c.writeMutex.Unlock()
 	if c.metadata.Network == "udp" && c.metadata.Flow != XRV {
-		// logrus.Println("!!!", "UDP, write")
-		var bLen [2]byte
-		binary.BigEndian.PutUint16(bLen[:], uint16(len(b)))
-		if _, err = c.write(bLen[:]); err != nil {
+		// Length prefix and datagram go out in one write so the first
+		// datagram travels with the request header (see write).
+		framed := pool.Get(2 + len(b))
+		defer pool.Put(framed)
+		binary.BigEndian.PutUint16(framed, uint16(len(b)))
+		copy(framed[2:], b)
+		if _, err = c.write(framed); err != nil {
 			return 0, err
 		}
+		return len(b), nil
 	}
 	return c.write(b)
 }
+
+// firstWriteCoalesceMax bounds the payload copied in front of the request
+// header so both leave in a single write.
+const firstWriteCoalesceMax = 16 << 10
 
 func (c *Conn) write(b []byte) (n int, err error) {
 	if !c.onceWrite {
 		if c.metadata.IsClient {
 			header := c.reqHeader()
 			defer pool.Put(header)
-			buffers := net.Buffers{header}
-			if len(b) > 0 {
-				buffers = append(buffers, b)
+			// Header and first payload in one write, like Xray's and
+			// sing-box's clients: with WebSocket early data the whole
+			// first request then rides in the upgrade request instead of
+			// the server waiting on a second frame.
+			if len(b) <= firstWriteCoalesceMax {
+				first := pool.Get(len(header) + len(b))
+				defer pool.Put(first)
+				copy(first, header)
+				copy(first[len(header):], b)
+				if _, err = c.Conn.Write(first); err != nil {
+					return 0, fmt.Errorf("write header: %w", err)
+				}
+				c.onceWrite = true
+				return len(b), nil
 			}
+			buffers := net.Buffers{header, b}
 			if _, err = buffers.WriteTo(c.Conn); err != nil {
 				return 0, fmt.Errorf("write header: %w", err)
 			}

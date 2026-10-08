@@ -100,9 +100,34 @@ func (c *Conn) reqHeaderFromPool() (buf []byte) {
 	return buf
 }
 
+// firstWriteCoalesceMax bounds the payload copied in front of the request
+// header so both leave in a single write.
+const firstWriteCoalesceMax = 16 << 10
+
 func (c *Conn) writeRequestHeader(payload []byte) (n int, err error) {
 	header := c.reqHeaderFromPool()
 	defer pool.Put(header)
+
+	// Header and first payload in one write, like Xray's and sing-box's
+	// clients: with WebSocket early data the whole first request then rides
+	// in the upgrade request instead of the server waiting on a second frame.
+	if len(payload) > 0 && len(payload) <= firstWriteCoalesceMax {
+		first := pool.Get(len(header) + len(payload))
+		defer pool.Put(first)
+		copy(first, header)
+		copy(first[len(header):], payload)
+		written, err := c.Conn.Write(first)
+		if err != nil {
+			if written <= len(header) {
+				return 0, fmt.Errorf("write header: %w", err)
+			}
+			return written - len(header), fmt.Errorf("write header: %w", err)
+		}
+		if written < len(first) {
+			return max(written-len(header), 0), fmt.Errorf("write header: %w", io.ErrShortWrite)
+		}
+		return len(payload), nil
+	}
 
 	buffers := net.Buffers{header}
 	if len(payload) > 0 {
