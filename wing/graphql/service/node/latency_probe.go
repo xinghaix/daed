@@ -29,45 +29,38 @@ import (
 
 // Manual latency probes measure every node with two methods:
 //
-//   - PING: a direct (not proxied) TCP connect to the node's server
-//     address, i.e. "tcping". It needs no CAP_NET_RAW, works in containers
-//     and is what proxy clients usually call "ping". UDP-only protocols
-//     (hysteria2, tuic, juicity) have nothing listening on TCP, so PING is
-//     reported as not applicable for them.
+//   - Handshake (shown as TLS): a direct, unproxied connection to the
+//     node's server, timed from connect to a completed handshake. TLS nodes
+//     get a TCP+TLS handshake with the node's SNI and ALPN; QUIC nodes
+//     (hysteria2, tuic, juicity) a QUIC handshake; plain-TCP nodes
+//     (shadowsocks, socks, ...) and Reality nodes a TCP connect. Sockets
+//     carry so_mark_from_dae and server names are resolved like dae's own
+//     node dialers, so dae does not capture the probe. See latency_handshake.go.
 //   - HTTP: a real request through the node to the selected config's
 //     tcp_check_url/tcp_check_http_method, timed from dialing to the
 //     response headers, over a fresh connection (keep-alive disabled).
 //
 // The timeouts are package variables (not flags) so tests can shorten them.
 var (
-	// latencyPingTimeout bounds one TCP connect (DNS resolution excluded).
-	latencyPingTimeout = 3 * time.Second
-	// latencyDNSTimeout bounds resolving the node's server name for PING.
+	// latencyHandshakeTimeout bounds one direct handshake (DNS excluded).
+	latencyHandshakeTimeout = 4 * time.Second
+	// latencyDNSTimeout bounds resolving the node's server name.
 	latencyDNSTimeout = 3 * time.Second
 	// latencyHTTPTimeout bounds one proxied HTTP request, dial included.
-	// dae's own health check uses 1.5s, too tight for TLS+WS over a CDN.
-	latencyHTTPTimeout = 5 * time.Second
+	// The first request over a fresh connection pays for TCP, TLS, the
+	// WebSocket upgrade and the proxy handshake before the check URL is even
+	// reached; through a CDN from a distant network that alone can take
+	// 3-5s, so dae's 1.5s health check timeout is far too tight here.
+	latencyHTTPTimeout = 8 * time.Second
 )
 
 // latencyMessageMaxLen caps error messages returned to the UI.
 const latencyMessageMaxLen = 300
 
-// udpOnlyProtocols have no TCP listener on the server port.
-var udpOnlyProtocols = map[string]struct{}{
-	"hysteria2": {},
-	"hysteria":  {},
-	"hy2":       {},
-	"tuic":      {},
-	"juicity":   {},
-}
-
-func pingSupported(protocol string) bool {
-	_, udpOnly := udpOnlyProtocols[strings.ToLower(protocol)]
-	return !udpOnly
-}
-
 // probeOutcome is the result of one probe method.
 type probeOutcome struct {
+	// Method names what was measured: TLS, TCP, QUIC or HTTP.
+	Method   string
 	Ok       bool
 	Latency  time.Duration
 	Message  string
@@ -82,44 +75,28 @@ func failedOutcome(err error) probeOutcome {
 
 type contextDialer func(ctx context.Context, network, addr string) (netproxy.Conn, error)
 
-// probePing measures a direct TCP connect to address (host:port). Names are
-// resolved first (not timed); IPv4 is tried before IPv6.
-func probePing(ctx context.Context, dial contextDialer, resolver *net.Resolver, address string, soMark uint32, mptcp bool) probeOutcome {
-	host, port, err := net.SplitHostPort(address)
-	if err != nil {
-		return failedOutcome(fmt.Errorf("bad server address %q: %w", address, err))
+// hostLookup resolves a server name to its addresses.
+type hostLookup func(ctx context.Context, host string) ([]netip.Addr, error)
+
+// fakeIPRange is the benchmark range fake-ip DNS servers (Clash/mihomo,
+// sing-box) hand out by default.
+var fakeIPRange = netip.MustParsePrefix("198.18.0.0/15")
+
+// sanityNote flags results that cannot be a real round trip to a remote
+// server: a fake-ip address, or a near-zero RTT to a public address, which
+// means something on this host or LAN answered the SYN (a transparent proxy).
+func sanityNote(ip netip.Addr, latency time.Duration) string {
+	ip = ip.Unmap()
+	if fakeIPRange.Contains(ip) {
+		return fmt.Sprintf("resolved to %s (fake-ip range): a fake-ip DNS on the path answers for this server, so the probe does not reach it", ip)
 	}
-	var ips []netip.Addr
-	if ip, err := netip.ParseAddr(host); err == nil {
-		ips = []netip.Addr{ip.Unmap()}
-	} else {
-		dnsCtx, cancel := context.WithTimeout(ctx, latencyDNSTimeout)
-		ips, err = resolver.LookupNetIP(dnsCtx, "ip", host)
-		cancel()
-		if err != nil {
-			return failedOutcome(fmt.Errorf("DNS: %w", err))
-		}
+	if latency < 2*time.Millisecond && !ip.IsPrivate() && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() && !cgnatRange.Contains(ip) {
+		return fmt.Sprintf("suspiciously low for public address %s: the connection may be answered by a local or LAN transparent proxy", ip)
 	}
-	network := common.MagicNetwork("tcp", soMark, mptcp)
-	var lastErr error = errors.New("no address")
-	for _, ip := range orderIPv4First(ips) {
-		if ctx.Err() != nil {
-			return failedOutcome(ctx.Err())
-		}
-		pingCtx, cancel := context.WithTimeout(ctx, latencyPingTimeout)
-		start := time.Now()
-		conn, err := dial(pingCtx, network, net.JoinHostPort(ip.String(), port))
-		latency := time.Since(start)
-		cancel()
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		_ = conn.Close()
-		return probeOutcome{Ok: true, Latency: latency, TestedAt: time.Now()}
-	}
-	return failedOutcome(lastErr)
+	return ""
 }
+
+var cgnatRange = netip.MustParsePrefix("100.64.0.0/10")
 
 func orderIPv4First(ips []netip.Addr) []netip.Addr {
 	ordered := make([]netip.Addr, 0, len(ips))
@@ -186,6 +163,11 @@ func probeHTTP(ctx context.Context, dial contextDialer, checkURL *url.URL, metho
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 	_ = resp.Body.Close()
+	// A response racing the deadline is reported as the timeout it is,
+	// never as a latency equal to the cap.
+	if latency >= latencyHTTPTimeout {
+		return failedOutcome(context.DeadlineExceeded)
+	}
 	if err := judgeCheckStatus(checkURL, resp.StatusCode); err != nil {
 		return failedOutcome(err)
 	}
@@ -237,6 +219,11 @@ func probeHTTPFamilies(ctx context.Context, dial contextDialer, opt *netutils.UR
 		return failedOutcome(errors.New("tcp_check_url has no usable IP"))
 	}
 	return outcome
+}
+
+func withMethod(o probeOutcome, method string) probeOutcome {
+	o.Method = method
+	return o
 }
 
 // describeProbeError turns probe errors into short messages for the UI.

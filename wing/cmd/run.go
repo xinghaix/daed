@@ -19,6 +19,7 @@ import (
 	"github.com/daeuniverse/dae-wing/db"
 	"github.com/daeuniverse/dae-wing/graphql"
 	"github.com/daeuniverse/dae-wing/graphql/service/config"
+	"github.com/daeuniverse/dae-wing/graphql/service/node"
 
 	"github.com/daeuniverse/dae-wing/graphql/service/subscription"
 	"github.com/daeuniverse/dae-wing/webrender"
@@ -98,6 +99,9 @@ var (
 				logrus.SetOutput(logOpts)
 				db.SetOutput(logOpts)
 			}
+			// Latency probes resolve node names with dae's DNS rules, which
+			// may reference geodata in the config directory.
+			node.SetGeoDataDirs([]string{cfgDir})
 			go func() {
 				if err := dae.Run(
 					logrus.StandardLogger(),

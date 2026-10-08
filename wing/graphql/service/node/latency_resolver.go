@@ -20,7 +20,7 @@ type LatencyResolver struct {
 	AliveVal   bool
 	TestedAtV  time.Time
 	MessageV   *string
-	PingV      *ProbeResolver
+	HandshakeV *ProbeResolver
 	HttpV      *ProbeResolver
 }
 
@@ -45,11 +45,11 @@ func (r *LatencyResolver) Message() *string {
 }
 
 func (r *LatencyResolver) Testing() bool {
-	return (r.PingV != nil && r.PingV.PendingV) || (r.HttpV != nil && r.HttpV.PendingV)
+	return (r.HandshakeV != nil && r.HandshakeV.PendingV) || (r.HttpV != nil && r.HttpV.PendingV)
 }
 
-func (r *LatencyResolver) Ping() *ProbeResolver {
-	return r.PingV
+func (r *LatencyResolver) Handshake() *ProbeResolver {
+	return r.HandshakeV
 }
 
 func (r *LatencyResolver) Http() *ProbeResolver {
@@ -58,12 +58,18 @@ func (r *LatencyResolver) Http() *ProbeResolver {
 
 // ProbeResolver resolves LatencyProbe: the result of one probe method.
 type ProbeResolver struct {
+	MethodV    string
 	OkV        bool
 	LatencyMsV *int32
 	MessageV   *string
 	TestedAtV  time.Time
 	PendingV   bool
 	SupportedV bool
+}
+
+// Method is TLS, TCP or QUIC for the handshake probe and HTTP for HTTP.
+func (r *ProbeResolver) Method() string {
+	return r.MethodV
 }
 
 func (r *ProbeResolver) Ok() bool {
@@ -94,7 +100,7 @@ func (r *ProbeResolver) Supported() bool {
 }
 
 func probeResolverFromOutcome(o probeOutcome) *ProbeResolver {
-	r := &ProbeResolver{OkV: o.Ok, TestedAtV: o.TestedAt, SupportedV: !o.Unsupported}
+	r := &ProbeResolver{MethodV: o.Method, OkV: o.Ok, TestedAtV: o.TestedAt, SupportedV: !o.Unsupported}
 	if o.Ok {
 		ms := latencyMillis(o.Latency)
 		r.LatencyMsV = &ms
@@ -133,12 +139,12 @@ func cloneProbeResolver(r *ProbeResolver) *ProbeResolver {
 }
 
 // syncLegacyFields derives latencyMs/alive/message/testedAt from the HTTP
-// result (or PING when HTTP has not reported yet).
+// result (or the handshake probe when HTTP has not reported yet).
 func (r *LatencyResolver) syncLegacyFields() {
 	src := r.HttpV
 	if src == nil || src.PendingV && src.TestedAtV.IsZero() {
-		if r.PingV != nil && !r.PingV.PendingV {
-			src = r.PingV
+		if r.HandshakeV != nil && !r.HandshakeV.PendingV {
+			src = r.HandshakeV
 		}
 	}
 	if src == nil || src.PendingV {

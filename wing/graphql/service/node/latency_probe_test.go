@@ -21,11 +21,15 @@ func plainDial(ctx context.Context, _ string, addr string) (netproxy.Conn, error
 	return d.DialContext(ctx, "tcp", addr)
 }
 
-func setLatencyTimeouts(t *testing.T, ping, http time.Duration) {
+func systemLookup(ctx context.Context, host string) ([]netip.Addr, error) {
+	return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+}
+
+func setLatencyTimeouts(t *testing.T, handshake, http time.Duration) {
 	t.Helper()
-	oldPing, oldHTTP := latencyPingTimeout, latencyHTTPTimeout
-	latencyPingTimeout, latencyHTTPTimeout = ping, http
-	t.Cleanup(func() { latencyPingTimeout, latencyHTTPTimeout = oldPing, oldHTTP })
+	oldHandshake, oldHTTP := latencyHandshakeTimeout, latencyHTTPTimeout
+	latencyHandshakeTimeout, latencyHTTPTimeout = handshake, http
+	t.Cleanup(func() { latencyHandshakeTimeout, latencyHTTPTimeout = oldHandshake, oldHTTP })
 }
 
 func loopbackIP(t *testing.T, rawURL string) netip.Addr {
@@ -131,59 +135,6 @@ func TestProbeHTTPCanceled(t *testing.T) {
 	}
 }
 
-func TestProbePing(t *testing.T) {
-	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
-	setLatencyTimeouts(t, time.Second, time.Second)
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	accepted := make(chan struct{})
-	go func() {
-		defer close(accepted)
-		for {
-			c, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			_ = c.Close()
-		}
-	}()
-	addr := ln.Addr().String()
-	_, port, _ := net.SplitHostPort(addr)
-
-	outcome := probePing(context.Background(), plainDial, net.DefaultResolver, addr, 0, false)
-	if !outcome.Ok || outcome.Latency <= 0 || outcome.Message != "" {
-		t.Fatalf("listening port: %+v", outcome)
-	}
-	outcome = probePing(context.Background(), plainDial, net.DefaultResolver, net.JoinHostPort("localhost", port), 0, false)
-	if !outcome.Ok {
-		t.Fatalf("hostname: %+v", outcome)
-	}
-	_ = ln.Close()
-	<-accepted
-
-	outcome = probePing(context.Background(), plainDial, net.DefaultResolver, addr, 0, false)
-	if outcome.Ok || outcome.Message == "" {
-		t.Fatalf("closed port: %+v", outcome)
-	}
-	outcome = probePing(context.Background(), plainDial, net.DefaultResolver, "no-port", 0, false)
-	if outcome.Ok || !strings.Contains(outcome.Message, "bad server address") {
-		t.Fatalf("bad address: %+v", outcome)
-	}
-}
-
-func TestPingSupported(t *testing.T) {
-	for protocol, want := range map[string]bool{
-		"vmess": true, "trojan": true, "shadowsocks": true, "": true,
-		"hysteria2": false, "TUIC": false, "juicity": false,
-	} {
-		if got := pingSupported(protocol); got != want {
-			t.Errorf("%q: got %v", protocol, got)
-		}
-	}
-}
-
 func TestDescribeProbeError(t *testing.T) {
 	long := strings.Repeat("x", 1000)
 	for _, c := range []struct {
@@ -209,3 +160,24 @@ func TestDescribeProbeError(t *testing.T) {
 type errString string
 
 func (e errString) Error() string { return string(e) }
+
+func TestSanityNote(t *testing.T) {
+	for _, c := range []struct {
+		ip      string
+		latency time.Duration
+		warn    string
+	}{
+		{"203.0.113.10", time.Millisecond, "suspiciously low"},
+		{"203.0.113.10", 30 * time.Millisecond, ""},
+		{"198.18.0.7", 40 * time.Millisecond, "fake-ip"},
+		{"192.168.1.2", time.Millisecond, ""},
+		{"127.0.0.1", 0, ""},
+		{"100.101.102.103", time.Millisecond, ""}, // CGNAT / Tailscale
+		{"2001:db8::1", time.Millisecond, "suspiciously low"},
+	} {
+		got := sanityNote(netip.MustParseAddr(c.ip), c.latency)
+		if (c.warn == "") != (got == "") || !strings.Contains(got, c.warn) {
+			t.Errorf("%s %v: got %q, want %q", c.ip, c.latency, got, c.warn)
+		}
+	}
+}

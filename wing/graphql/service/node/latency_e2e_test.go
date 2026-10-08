@@ -35,7 +35,7 @@ func serveSocks5(t *testing.T) (addr string, proxied func() int) {
 		defer c.Close()
 		buf := make([]byte, 262)
 		if _, err := io.ReadFull(c, buf[:2]); err != nil {
-			return // e.g. the PING probe: connect and close
+			return // e.g. the TCP handshake probe: connect and close
 		}
 		if _, err := io.ReadFull(c, buf[:buf[1]]); err != nil {
 			return
@@ -93,8 +93,8 @@ func serveSocks5(t *testing.T) (addr string, proxied func() int) {
 }
 
 // TestLatencyEndToEndThroughSocks5 runs the real probe (dae dialer from a
-// node link) against a local SOCKS5 node: PING hits the proxy port
-// directly, HTTP goes through the proxy to tcp_check_url.
+// node link) against a local SOCKS5 node: the handshake probe (a TCP
+// connect for plain-TCP protocols) hits the proxy port directly, HTTP goes through the proxy to tcp_check_url.
 func TestLatencyEndToEndThroughSocks5(t *testing.T) {
 	resetLatencyCache(t)
 	var status atomic.Int32
@@ -128,8 +128,8 @@ func TestLatencyEndToEndThroughSocks5(t *testing.T) {
 		t.Fatalf("results=%v err=%v", results, err)
 	}
 	r := results[0]
-	if r.PingV == nil || !r.PingV.OkV || r.PingV.LatencyMsV == nil || !r.PingV.SupportedV {
-		t.Fatalf("ping: %+v", r.PingV)
+	if r.HandshakeV == nil || !r.HandshakeV.OkV || r.HandshakeV.LatencyMsV == nil || !r.HandshakeV.SupportedV || r.HandshakeV.MethodV != handshakeTCP {
+		t.Fatalf("handshake: %+v (message %v)", r.HandshakeV, deref(r.HandshakeV.MessageV))
 	}
 	if r.HttpV == nil || !r.HttpV.OkV || r.HttpV.LatencyMsV == nil || r.HttpV.MessageV != nil {
 		t.Fatalf("http: %+v (message %v)", r.HttpV, deref(r.HttpV.MessageV))
@@ -148,8 +148,8 @@ func TestLatencyEndToEndThroughSocks5(t *testing.T) {
 		t.Fatalf("results=%v err=%v", results, err)
 	}
 	r = results[0]
-	if !r.PingV.OkV || r.HttpV.OkV || deref(r.HttpV.MessageV) != "HTTP 404" || r.AliveVal {
-		t.Fatalf("want PING ok and HTTP 404: ping=%+v http=%+v msg=%q", r.PingV, r.HttpV, deref(r.HttpV.MessageV))
+	if !r.HandshakeV.OkV || r.HttpV.OkV || deref(r.HttpV.MessageV) != "HTTP 404" || r.AliveVal {
+		t.Fatalf("want handshake ok and HTTP 404: handshake=%+v http=%+v msg=%q", r.HandshakeV, r.HttpV, deref(r.HttpV.MessageV))
 	}
 }
 
@@ -158,4 +158,57 @@ func deref(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// TestLatencyEnvUsesDaeDNSRouter checks that a dns config with routing
+// rules gives the probes dae's DNS router, so node names are resolved like
+// dae's node dialers do (bootstrap resolver over marked sockets), not via
+// the system resolver.
+func TestLatencyEnvUsesDaeDNSRouter(t *testing.T) {
+	if err := db.InitDatabase(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	d := db.DB(ctx)
+	if err := d.Create(&db.Config{Global: "global {}", Selected: true}).Error; err != nil {
+		t.Fatal(err)
+	}
+	env, err := newLatencyProbeEnv(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env.dnsRouter != nil || env.option.DaeDNS != nil {
+		t.Fatal("no dns config must mean no router, like dae")
+	}
+	env.Close()
+
+	dns := "dns {\n upstream {\n  alidns: 'udp://223.5.5.5:53'\n }\n routing {\n  request {\n   qname(full:example.com) -> alidns\n   fallback: asis\n  }\n }\n}"
+	tag := "sub"
+	sub := db.Subscription{Link: "https://example.com/s", Tag: &tag}
+	if err := d.Create(&sub).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Create(&db.Dns{Dns: dns, Selected: true}).Error; err != nil {
+		t.Fatal(err)
+	}
+	env, err = newLatencyProbeEnv(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer env.Close()
+	if env.dnsRouter == nil || env.option.DaeDNS != env.dnsRouter {
+		t.Fatal("dns routing must give the probes dae's DNS router")
+	}
+	if env.option.SoMarkFromDae == 0 {
+		t.Fatal("probe sockets must carry so_mark_from_dae")
+	}
+	if got := env.subscriptionTag(&db.Node{SubscriptionID: &sub.ID}); got != tag {
+		t.Fatalf("subscription tag %q", got)
+	}
+	// An IP-literal server needs no lookup; the wrapper must pass it through.
+	lookup := env.serverLookup(env.option.DirectDialer, &db.Node{Link: "socks5://127.0.0.1:1"}, "", "n", "127.0.0.1:1")
+	ips, err := lookup(ctx, "127.0.0.1")
+	if err != nil || len(ips) != 1 || ips[0].String() != "127.0.0.1" {
+		t.Fatalf("ips=%v err=%v", ips, err)
+	}
 }

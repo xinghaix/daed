@@ -84,7 +84,7 @@ require (
 	github.com/oklog/ulid/v2 v2.1.1 // indirect
 	github.com/okzk/sdnotify v0.0.0-20240725214427-1c1fdd37c5ac // indirect
 	github.com/olicesx/qpack v0.6.1-0.20260910092525-3d8903e3255f // indirect
-	github.com/olicesx/quic-go v0.0.0-20260910141758-62d80bbebb5b // indirect
+	github.com/olicesx/quic-go v0.0.0-20260910141758-62d80bbebb5b
 	github.com/onsi/ginkgo/v2 v2.28.1 // indirect
 	github.com/panjf2000/ants/v2 v2.11.5 // indirect
 	github.com/pierrec/lz4/v4 v4.1.25 // indirect

@@ -51,7 +51,7 @@ func cloneLatencyResolver(resolver *LatencyResolver) *LatencyResolver {
 		message := *resolver.MessageV
 		clone.MessageV = &message
 	}
-	clone.PingV = cloneProbeResolver(resolver.PingV)
+	clone.HandshakeV = cloneProbeResolver(resolver.HandshakeV)
 	clone.HttpV = cloneProbeResolver(resolver.HttpV)
 	return &clone
 }
@@ -91,7 +91,7 @@ func evictOldestLatencyEntriesLocked() {
 // beginLatencyProbe marks both methods of a node as pending (keeping the
 // previous values for display) and returns the generation that may update
 // the entry.
-func beginLatencyProbe(nodeID uint, gen uint64, pingApplicable bool) {
+func beginLatencyProbe(nodeID uint, gen uint64, handshakeApplicable bool) {
 	nodeLatencyCache.mu.Lock()
 	defer nodeLatencyCache.mu.Unlock()
 	entry := nodeLatencyCache.items[nodeID]
@@ -100,13 +100,13 @@ func beginLatencyProbe(nodeID uint, gen uint64, pingApplicable bool) {
 	} else {
 		entry.result = cloneLatencyResolver(entry.result)
 	}
-	if entry.result.PingV == nil {
-		entry.result.PingV = &ProbeResolver{SupportedV: pingApplicable}
+	if entry.result.HandshakeV == nil {
+		entry.result.HandshakeV = &ProbeResolver{SupportedV: handshakeApplicable}
 	}
 	if entry.result.HttpV == nil {
 		entry.result.HttpV = &ProbeResolver{SupportedV: true}
 	}
-	entry.result.PingV.PendingV = true
+	entry.result.HandshakeV.PendingV = true
 	entry.result.HttpV.PendingV = true
 	entry.gen = gen
 	nodeLatencyCache.items[nodeID] = entry
@@ -123,8 +123,8 @@ func storeLatencyProbe(nodeID uint, gen uint64, method string, result *ProbeReso
 	}
 	entry.result = cloneLatencyResolver(entry.result)
 	switch method {
-	case latencyMethodPing:
-		entry.result.PingV = cloneProbeResolver(result)
+	case latencyMethodHandshake:
+		entry.result.HandshakeV = cloneProbeResolver(result)
 	case latencyMethodHTTP:
 		entry.result.HttpV = cloneProbeResolver(result)
 	}
@@ -156,12 +156,12 @@ func abortLatencyProbe(nodeID uint, gen uint64) {
 		return
 	}
 	entry.result = cloneLatencyResolver(entry.result)
-	for _, probe := range []*ProbeResolver{entry.result.PingV, entry.result.HttpV} {
+	for _, probe := range []*ProbeResolver{entry.result.HandshakeV, entry.result.HttpV} {
 		if probe != nil {
 			probe.PendingV = false
 		}
 	}
-	if entry.result.PingV != nil && entry.result.PingV.TestedAtV.IsZero() &&
+	if entry.result.HandshakeV != nil && entry.result.HandshakeV.TestedAtV.IsZero() &&
 		entry.result.HttpV != nil && entry.result.HttpV.TestedAtV.IsZero() {
 		// Nothing was ever measured: forget the placeholder.
 		delete(nodeLatencyCache.items, nodeID)
@@ -274,6 +274,7 @@ func loadRuntimeLatencyResults(ctx context.Context) (map[uint]*LatencyResolver, 
 				MessageV:   stringPtr(snapshot.Message),
 				// dae's own health check is an HTTP check over the node.
 				HttpV: &ProbeResolver{
+					MethodV:    latencyMethodHTTP,
 					OkV:        snapshot.Alive,
 					LatencyMsV: snapshot.LatencyMs,
 					MessageV:   optionalString(snapshot.Message),
@@ -310,6 +311,7 @@ func refreshLatencyCache(ctx context.Context, nodes []db.Node, all bool) error {
 	if err != nil {
 		return err
 	}
+	defer env.Close()
 
 	if _, err := runLatencyProbes(ctx, env, nodes); err != nil {
 		return err

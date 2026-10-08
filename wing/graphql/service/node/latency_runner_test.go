@@ -25,9 +25,9 @@ func okResult(id uint) *LatencyResolver {
 	ms := int32(10)
 	now := time.Now()
 	r := &LatencyResolver{
-		NodeID: id,
-		PingV:  &ProbeResolver{OkV: true, LatencyMsV: &ms, TestedAtV: now, SupportedV: true},
-		HttpV:  &ProbeResolver{OkV: true, LatencyMsV: &ms, TestedAtV: now, SupportedV: true},
+		NodeID:     id,
+		HandshakeV: &ProbeResolver{OkV: true, LatencyMsV: &ms, TestedAtV: now, SupportedV: true},
+		HttpV:      &ProbeResolver{OkV: true, LatencyMsV: &ms, TestedAtV: now, SupportedV: true},
 	}
 	r.syncLegacyFields()
 	return r
@@ -215,13 +215,13 @@ func TestLatencyProbeGenerations(t *testing.T) {
 	ms := int32(5)
 	beginLatencyProbe(1, 10, true)
 	r := snapshotCachedLatencyResults()[1]
-	if !r.Testing() || !r.PingV.PendingV || !r.HttpV.PendingV {
+	if !r.Testing() || !r.HandshakeV.PendingV || !r.HttpV.PendingV {
 		t.Fatalf("begin: %+v", r)
 	}
-	storeLatencyProbe(1, 10, latencyMethodPing, &ProbeResolver{OkV: true, LatencyMsV: &ms, TestedAtV: time.Now(), SupportedV: true})
+	storeLatencyProbe(1, 10, latencyMethodHandshake, &ProbeResolver{OkV: true, LatencyMsV: &ms, TestedAtV: time.Now(), SupportedV: true})
 	r = snapshotCachedLatencyResults()[1]
-	if r.PingV.PendingV || *r.PingV.LatencyMsV != 5 || !r.HttpV.PendingV || !r.Testing() {
-		t.Fatalf("partial ping result must show while http is pending: ping=%+v http=%+v", r.PingV, r.HttpV)
+	if r.HandshakeV.PendingV || *r.HandshakeV.LatencyMsV != 5 || !r.HttpV.PendingV || !r.Testing() {
+		t.Fatalf("partial ping result must show while http is pending: ping=%+v http=%+v", r.HandshakeV, r.HttpV)
 	}
 	// A newer probe takes over; the old generation must not write anymore.
 	beginLatencyProbe(1, 11, true)
@@ -231,12 +231,12 @@ func TestLatencyProbeGenerations(t *testing.T) {
 	if !r.HttpV.PendingV || r.HttpV.MessageV != nil {
 		t.Fatalf("stale generation overwrote the entry: %+v", r.HttpV)
 	}
-	if r.PingV.LatencyMsV == nil || *r.PingV.LatencyMsV != 5 {
+	if r.HandshakeV.LatencyMsV == nil || *r.HandshakeV.LatencyMsV != 5 {
 		t.Fatal("previous ping value must stay visible while re-testing")
 	}
 	abortLatencyProbe(1, 11)
 	r = snapshotCachedLatencyResults()[1]
-	if r == nil || r.Testing() || *r.PingV.LatencyMsV != 5 {
+	if r == nil || r.Testing() || *r.HandshakeV.LatencyMsV != 5 {
 		t.Fatalf("abort must keep measured values and clear pending: %+v", r)
 	}
 }
@@ -360,7 +360,7 @@ func TestLatencyEntryPointsWithInvalidLinks(t *testing.T) {
 			t.Fatalf("%s: results=%v err=%v", name, results, err)
 		}
 		for i, r := range results {
-			if r.NodeID != ids[i] || r.PingV == nil || r.HttpV == nil || r.Testing() || r.AliveVal ||
+			if r.NodeID != ids[i] || r.HandshakeV == nil || r.HttpV == nil || r.Testing() || r.AliveVal ||
 				r.HttpV.MessageV == nil || r.HttpV.TestedAtV.IsZero() {
 				t.Fatalf("%s: bad result %+v", name, r)
 			}
@@ -373,8 +373,8 @@ func TestLatencyEntryPointsWithInvalidLinks(t *testing.T) {
 	check("subscription", results, err, nodes[0].ID)
 	results, err = TestGroupLatencies(ctx, common.EncodeCursor(group.ID))
 	check("group", results, err, nodes[1].ID)
-	if results[0].PingV.SupportedV {
-		t.Fatal("PING must be reported as not applicable for UDP-only protocols")
+	if hs := results[0].HandshakeV; hs.MethodV != handshakeTCP || hs.OkV || results[0].HttpV.MethodV != latencyMethodHTTP {
+		t.Fatalf("invalid node must report a failed TCP handshake and HTTP: %+v %+v", hs, results[0].HttpV)
 	}
 	results, err = TestLatencies(ctx, nil)
 	check("all", results, err, nodes[0].ID, nodes[1].ID)

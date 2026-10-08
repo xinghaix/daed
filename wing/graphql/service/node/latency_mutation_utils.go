@@ -19,8 +19,12 @@ import (
 	"github.com/daeuniverse/dae-wing/common"
 	"github.com/daeuniverse/dae-wing/dae"
 	"github.com/daeuniverse/dae-wing/db"
+	daecommon "github.com/daeuniverse/dae/common"
+	"github.com/daeuniverse/dae/common/assets"
 	"github.com/daeuniverse/dae/common/netutils"
+	"github.com/daeuniverse/dae/component/daedns"
 	dialer "github.com/daeuniverse/dae/component/outbound/dialer"
+	daeConfig "github.com/daeuniverse/dae/config"
 	"github.com/daeuniverse/outbound/netproxy"
 	"github.com/daeuniverse/outbound/protocol/direct"
 	"github.com/graph-gophers/graphql-go"
@@ -33,8 +37,8 @@ const (
 	// probes do not compete for bandwidth and skew each other.
 	latencyProbeConcurrency = 8
 
-	latencyMethodPing = "PING"
-	latencyMethodHTTP = "HTTP"
+	latencyMethodHandshake = "HANDSHAKE"
+	latencyMethodHTTP      = "HTTP"
 )
 
 // latencyProbeSlots is the global worker pool.
@@ -57,20 +61,93 @@ type latencyCall struct {
 	cancel  context.CancelFunc
 }
 
+// latencyGeoDataDirs are searched for geoip/geosite files referenced by the
+// DNS routing rules (the same directories dae is started with).
+var latencyGeoDataDirs []string
+
+// SetGeoDataDirs tells latency probes where dae's geodata files live. Call
+// it once at startup.
+func SetGeoDataDirs(dirs []string) {
+	latencyGeoDataDirs = append([]string(nil), dirs...)
+}
+
 // latencyProbeEnv is what a probe needs from the selected config.
 type latencyProbeEnv struct {
-	option   *dialer.GlobalOption
-	resolver *net.Resolver
+	option *dialer.GlobalOption
+	// dnsRouter is dae's DNS router for the selected dns config (nil when
+	// it has no routing rules, like in dae). Node server names are resolved
+	// through it exactly like dae's own node dialers do: the bootstrap
+	// resolver or a node/subscription DNS rule, over sockets carrying
+	// so_mark_from_dae, instead of the system resolver, which may be
+	// captured by dae itself or answered by a fake-ip DNS on the LAN.
+	dnsRouter        *daedns.Router
+	subscriptionTags map[uint]string
+	// refs counts the creator plus running probes: a probe may outlive the
+	// request that started it when another request joined it.
+	refs atomic.Int32
 	// probe is the per-node probe; tests replace it.
 	probe func(ctx context.Context, env *latencyProbeEnv, node *db.Node, gen uint64) *LatencyResolver
 }
 
 func newLatencyProbeEnv(ctx context.Context) (*latencyProbeEnv, error) {
-	option, err := latencyProbeOption(ctx)
+	conf, err := latencyProbeConfig(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return &latencyProbeEnv{option: option, resolver: net.DefaultResolver, probe: probeNodeLatency}, nil
+	option, err := latencyProbeOption(&conf.Global)
+	if err != nil {
+		return nil, err
+	}
+	env := &latencyProbeEnv{option: option, probe: probeNodeLatency}
+	env.refs.Store(1)
+	router, err := daedns.NewWithOption(discardLogger(), &conf.Global, &conf.Dns, &daedns.NewOption{
+		LocationFinder: assets.NewLocationFinder(latencyGeoDataDirs),
+		DirectDialer:   option.DirectDialer,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("dns config: %w", err)
+	}
+	if router != nil {
+		env.dnsRouter = router
+		option.DaeDNS = router
+	}
+
+	var subscriptions []db.Subscription
+	if err := db.DB(ctx).Model(&db.Subscription{}).Select("id", "tag").Find(&subscriptions).Error; err != nil {
+		env.Close()
+		return nil, err
+	}
+	env.subscriptionTags = make(map[uint]string, len(subscriptions))
+	for _, sub := range subscriptions {
+		if sub.Tag != nil {
+			env.subscriptionTags[sub.ID] = *sub.Tag
+		}
+	}
+	return env, nil
+}
+
+func (e *latencyProbeEnv) retain() {
+	e.refs.Add(1)
+}
+
+// Close drops a reference and releases the DNS router with the last one.
+func (e *latencyProbeEnv) Close() {
+	if e != nil && e.refs.Add(-1) == 0 && e.dnsRouter != nil {
+		_ = e.dnsRouter.Close()
+	}
+}
+
+func (e *latencyProbeEnv) subscriptionTag(node *db.Node) string {
+	if node.SubscriptionID == nil {
+		return ""
+	}
+	return e.subscriptionTags[*node.SubscriptionID]
+}
+
+func discardLogger() *logrus.Logger {
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+	return log
 }
 
 // TestLatencies probes all nodes (ids == nil) or the given nodes.
@@ -109,6 +186,7 @@ func testNodes(ctx context.Context, nodes []db.Node) ([]*LatencyResolver, error)
 	if err != nil {
 		return nil, err
 	}
+	defer env.Close()
 	return runLatencyProbes(ctx, env, nodes)
 }
 
@@ -148,7 +226,8 @@ func awaitNodeLatency(ctx context.Context, env *latencyProbeEnv, node db.Node) *
 		call = &latencyCall{done: make(chan struct{}), cancel: cancel}
 		latencyInflight.calls[node.ID] = call
 		gen := latencyProbeGen.Add(1)
-		beginLatencyProbe(node.ID, gen, pingSupported(node.Protocol))
+		beginLatencyProbe(node.ID, gen, handshakeTargetForLink(node.Link).Kind != "")
+		env.retain()
 		go runNodeLatency(probeCtx, env, node, gen, call)
 	}
 	call.waiters++
@@ -177,6 +256,7 @@ func awaitNodeLatency(ctx context.Context, env *latencyProbeEnv, node db.Node) *
 }
 
 func runNodeLatency(ctx context.Context, env *latencyProbeEnv, node db.Node, gen uint64, call *latencyCall) {
+	defer env.Close()
 	defer call.cancel()
 	var result *LatencyResolver
 	select {
@@ -201,7 +281,7 @@ func runNodeLatency(ctx context.Context, env *latencyProbeEnv, node db.Node, gen
 	close(call.done)
 }
 
-// probeNodeLatency runs PING then HTTP for one node with a dialer of its
+// probeNodeLatency runs the handshake probe then HTTP for one node with a dialer of its
 // own, publishing each method's result as soon as it is known.
 func probeNodeLatency(ctx context.Context, env *latencyProbeEnv, node *db.Node, gen uint64) *LatencyResolver {
 	result := &LatencyResolver{NodeID: node.ID, TestedAtV: time.Now()}
@@ -211,47 +291,39 @@ func probeNodeLatency(ctx context.Context, env *latencyProbeEnv, node *db.Node, 
 		return probe
 	}
 
-	d, err := dialer.NewFromLinkContext(ctx, env.option, dialer.InstanceOption{DisableCheck: true}, node.Link, "")
+	subscriptionTag := env.subscriptionTag(node)
+	// Same construction as dae's own node dialers: so_mark_from_dae on every
+	// socket and, with a DNS router, dae's resolution of the server name.
+	d, err := dialer.NewFromLinkContext(ctx, env.option, dialer.InstanceOption{DisableCheck: true}, node.Link, subscriptionTag)
 	if err != nil {
 		failed := failedOutcome(fmt.Errorf("invalid node: %w", err))
-		ping := failed
-		ping.Unsupported = !pingSupported(node.Protocol)
-		result.PingV = publish(latencyMethodPing, ping)
-		result.HttpV = publish(latencyMethodHTTP, failed)
+		result.HandshakeV = publish(latencyMethodHandshake, withMethod(failed, handshakeTargetForLink(node.Link).Kind))
+		result.HttpV = publish(latencyMethodHTTP, withMethod(failed, latencyMethodHTTP))
 		result.syncLegacyFields()
 		return result
 	}
 	defer func() { _ = d.Close() }()
 
-	var soMark uint32
-	var mptcp bool
-	if network, err := netproxy.ParseMagicNetwork(env.option.TcpCheckOptionRaw.ResolverNetwork); err == nil {
-		soMark = network.Mark
-		mptcp = network.Mptcp
-	}
+	soMark := env.option.SoMarkFromDae
+	mptcp := env.option.Mptcp
 
-	// PING: direct TCP connect to the node's server.
-	protocol := node.Protocol
-	address := node.Address
+	// Handshake: direct TLS/QUIC handshake or TCP connect to the server.
+	address, name := node.Address, node.Name
 	if property := d.Property(); property != nil {
-		if property.Protocol != "" {
-			protocol = property.Protocol
-		}
 		if property.Address != "" {
 			address = property.Address
 		}
-	}
-	var ping probeOutcome
-	if !pingSupported(protocol) {
-		ping = probeOutcome{Unsupported: true, Message: "not applicable: " + protocol + " has no TCP listener", TestedAt: time.Now()}
-	} else {
-		directDialer := env.option.DirectDialer
-		if directDialer == nil {
-			directDialer = direct.SymmetricDirect
+		if property.Name != "" {
+			name = property.Name
 		}
-		ping = probePing(ctx, directDialer.DialContext, env.resolver, address, soMark, mptcp)
 	}
-	result.PingV = publish(latencyMethodPing, ping)
+	directDialer := env.option.DirectDialer
+	if directDialer == nil {
+		directDialer = direct.SymmetricDirect
+	}
+	lookup := env.serverLookup(directDialer, node, subscriptionTag, name, address)
+	handshake := probeHandshake(ctx, directDialer.DialContext, lookup, address, handshakeTargetForLink(node.Link), soMark, mptcp)
+	result.HandshakeV = publish(latencyMethodHandshake, handshake)
 
 	// HTTP: real request through the node.
 	var httpOutcome probeOutcome
@@ -260,31 +332,83 @@ func probeNodeLatency(ctx context.Context, env *latencyProbeEnv, node *db.Node, 
 	} else {
 		httpOutcome = probeHTTPFamilies(ctx, d.DialContext, opt.Url, opt.Ip46, opt.Method, soMark, mptcp)
 	}
+	httpOutcome.Method = latencyMethodHTTP
 	result.HttpV = publish(latencyMethodHTTP, httpOutcome)
 	result.syncLegacyFields()
 	return result
 }
 
-func latencyProbeOption(ctx context.Context) (*dialer.GlobalOption, error) {
+type ipAddrLookuper interface {
+	LookupIPAddr(ctx context.Context, network, host string) ([]net.IPAddr, error)
+}
+
+// serverLookup resolves a node's server name the way dae's node dialer
+// does: through the DNS router's node wrapper when there is one (bootstrap
+// resolver or node DNS rule), otherwise through the direct dialer, whose
+// resolver sockets carry so_mark_from_dae and bypass dae's own capture.
+func (e *latencyProbeEnv) serverLookup(base netproxy.Dialer, node *db.Node, subscriptionTag, name, address string) hostLookup {
+	var resolver netproxy.Dialer = base
+	host, _, _ := net.SplitHostPort(address)
+	if e.dnsRouter != nil {
+		wrapped, err := e.dnsRouter.WrapNodeDialer(base, daedns.NodeMeta{
+			SubscriptionTag: subscriptionTag,
+			Name:            name,
+			Link:            node.Link,
+			AddressHost:     host,
+		})
+		if err == nil {
+			resolver = wrapped
+		}
+	}
+	network := daecommon.MagicNetwork("tcp", e.option.SoMarkFromDae, e.option.Mptcp)
+	return func(ctx context.Context, host string) ([]netip.Addr, error) {
+		var (
+			ipAddrs []net.IPAddr
+			err     error
+		)
+		if l, ok := resolver.(ipAddrLookuper); ok {
+			ipAddrs, err = l.LookupIPAddr(ctx, network, host)
+		} else {
+			ipAddrs, err = net.DefaultResolver.LookupIPAddr(ctx, host)
+		}
+		if err != nil {
+			return nil, err
+		}
+		ips := make([]netip.Addr, 0, len(ipAddrs))
+		for _, a := range ipAddrs {
+			if ip, ok := netip.AddrFromSlice(a.IP); ok {
+				ips = append(ips, ip.Unmap())
+			}
+		}
+		return ips, nil
+	}
+}
+
+// latencyProbeConfig parses the selected global and dns config.
+func latencyProbeConfig(ctx context.Context) (*daeConfig.Config, error) {
 	var configModel db.Config
-	q := db.DB(ctx).Where("selected = ?", true).First(&configModel)
+	if err := db.DB(ctx).Where("selected = ?", true).First(&configModel).Error; err != nil {
+		return nil, err
+	}
+	var dnsSection *string
+	var dnsModel db.Dns
+	q := db.DB(ctx).Where("selected = ?", true).Limit(1).Find(&dnsModel)
 	if q.Error != nil {
 		return nil, q.Error
 	}
-
-	parsedConfig, err := dae.ParseConfig(&configModel.Global, nil, nil)
-	if err != nil {
-		return nil, err
+	if q.RowsAffected > 0 {
+		dnsSection = &dnsModel.Dns
 	}
+	return dae.ParseConfig(&configModel.Global, dnsSection, nil)
+}
 
-	log := logrus.New()
-	log.SetOutput(io.Discard)
-	fallbackResolver, err := netip.ParseAddrPort(parsedConfig.Global.FallbackResolver)
+func latencyProbeOption(global *daeConfig.Global) (*dialer.GlobalOption, error) {
+	fallbackResolver, err := netip.ParseAddrPort(global.FallbackResolver)
 	if err != nil {
-		return nil, fmt.Errorf("fallback_resolver %q: %w", parsedConfig.Global.FallbackResolver, err)
+		return nil, fmt.Errorf("fallback_resolver %q: %w", global.FallbackResolver, err)
 	}
-	option := dialer.NewGlobalOption(&parsedConfig.Global, log)
-	directDialers := direct.NewDirectDialers(parsedConfig.Global.FallbackResolver)
+	option := dialer.NewGlobalOption(global, discardLogger())
+	directDialers := direct.NewDirectDialers(global.FallbackResolver)
 	option.SetRuntimeDependencies(directDialers.Symmetric, directDialers.Fullcone, netutils.NewSystemDNSResolver(fallbackResolver))
 	return option, nil
 }

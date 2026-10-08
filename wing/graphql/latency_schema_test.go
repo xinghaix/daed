@@ -20,8 +20,8 @@ func TestLatencySchemaBindsResolvers(t *testing.T) {
 	}
 	ctx := context.WithValue(context.Background(), "role", "admin")
 	const fields = `{ id latencyMs alive testedAt message testing
-		ping { ok latencyMs message testedAt pending supported }
-		http { ok latencyMs message testedAt pending supported } }`
+		handshake { method ok latencyMs message testedAt pending supported }
+		http { method ok latencyMs message testedAt pending supported } }`
 	for _, q := range []string{
 		`query { nodeLatencies(ids: [], cachedOnly: true) ` + fields + ` }`,
 		`mutation { testNodeLatencies(ids: []) ` + fields + ` }`,
