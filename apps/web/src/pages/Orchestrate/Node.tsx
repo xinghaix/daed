@@ -1,6 +1,6 @@
+import type { NodeLatencyProbeResult } from '~/apis'
 import type { QRCodeModalRef } from '~/components/QRCodeModal.tsx'
 import type { NodesQuery } from '~/schemas/gql/graphql.ts'
-import type { NodeLatencyProbeResult } from '~/apis'
 import { Droppable } from '@hello-pangea/dnd'
 import { Cloud, CloudUpload, Eye, FileInput, Pencil } from 'lucide-react'
 import { Fragment, useRef, useState } from 'react'
@@ -9,12 +9,13 @@ import { useImportNodesMutation, useRemoveNodesMutation } from '~/apis/index.ts'
 import { EditNodeFormModal } from '~/components/EditNodeFormModal.tsx'
 import { ImportResourceFormModal } from '~/components/ImportResourceFormModal.tsx'
 import { ConfigureNodeFormModal, SortableNodeCard } from '~/components/index.ts'
+import { LatencyBadge } from '~/components/LatencyBadge'
+import { LatencyTestButton } from '~/components/LatencyTestButton'
 import { QRCodeModal } from '~/components/QRCodeModal.tsx'
 import { Section } from '~/components/Section.tsx'
 import { Button } from '~/components/ui/button.tsx'
 import { SimpleTooltip } from '~/components/ui/tooltip.tsx'
 import { cn } from '~/lib/utils'
-import { formatLatencyLabel } from '~/utils/latency'
 
 export const NODE_DROPPABLE_ID = 'node-list'
 
@@ -75,6 +76,7 @@ export function NodeResource({
                 leftSection={protocol}
                 actions={
                   <Fragment>
+                    <LatencyTestButton target={{ kind: 'nodes', ids: [id] }} label={t('latency.testNode')} />
                     <SimpleTooltip label={t('actions.edit')}>
                       <Button
                         variant="ghost"
@@ -113,11 +115,7 @@ export function NodeResource({
                 }
                 onRemove={() => removeNodesMutation.mutate([id])}
               >
-                {nodeLatencies?.[id] && (
-                  <p className="text-xs font-medium text-primary">
-                    {formatLatencyLabel(nodeLatencies[id], t)}
-                  </p>
-                )}
+                <LatencyBadge nodeId={id} result={nodeLatencies?.[id]} className="text-xs font-medium" />
                 {name && name !== tag && <p className="text-xs opacity-70">{name}</p>}
                 <Spoiler label={link} showLabel={t('actions.show sensitive')} hideLabel={t('actions.hide')} />
               </SortableNodeCard>

@@ -11,6 +11,7 @@ export function DraggableResourceBadge({
   index,
   name,
   meta,
+  actions,
   onRemove,
   children,
 }: {
@@ -18,6 +19,8 @@ export function DraggableResourceBadge({
   index: number
   name: string
   meta?: React.ReactNode
+  /** Extra buttons shown before the remove button. */
+  actions?: React.ReactNode
   onRemove?: () => void
   children?: React.ReactNode
 }) {
@@ -45,6 +48,8 @@ export function DraggableResourceBadge({
       <span className="text-xs font-medium truncate flex-1">{name}</span>
 
       {meta && <span className="shrink-0 text-[10px] font-medium text-primary">{meta}</span>}
+
+      {actions}
 
       {/* Remove button */}
       {onRemove && (

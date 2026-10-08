@@ -24,6 +24,7 @@ import {
 import { DroppableGroupCard } from '~/components/DroppableGroupCard'
 import { GroupFormModal } from '~/components/GroupFormModal'
 import { GroupAddNodesModal, GroupAddSubscriptionsModal } from '~/components/GroupResourcePickerModal'
+import { LatencyTestButton } from '~/components/LatencyTestButton'
 import { Section } from '~/components/Section'
 import { SortableGroupContent } from '~/components/SortableGroupContent'
 import { Button } from '~/components/ui/button'
@@ -281,25 +282,36 @@ export function GroupResource({
         onRemove={defaultGroupID !== groupId ? () => removeGroupMutation.mutate(groupId) : undefined}
         onRename={(newName) => renameGroupMutation.mutate({ id: groupId, name: newName })}
         actions={
-          <SimpleTooltip label={t('actions.settings')}>
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={() => {
-                updateGroupFormModalRef.current?.setEditingID(groupId)
+          <>
+            <LatencyTestButton
+              variant="toolbar"
+              target={{ kind: 'group', id: groupId }}
+              nodeIds={[
+                ...groupNodes.map(({ id }) => id),
+                ...groupSubscriptions.flatMap(({ matchedNodes }) => matchedNodes.map(({ id }) => id)),
+              ]}
+              label={t('latency.testGroup')}
+            />
+            <SimpleTooltip label={t('actions.settings')}>
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => {
+                  updateGroupFormModalRef.current?.setEditingID(groupId)
 
-                updateGroupFormModalRef.current?.initOrigins({
-                  name,
-                  policy,
-                  policyParams,
-                })
+                  updateGroupFormModalRef.current?.initOrigins({
+                    name,
+                    policy,
+                    policyParams,
+                  })
 
-                openUpdateGroupFormModal()
-              }}
-            >
-              <Settings2 className="h-4 w-4" />
-            </Button>
-          </SimpleTooltip>
+                  openUpdateGroupFormModal()
+                }}
+              >
+                <Settings2 className="h-4 w-4" />
+              </Button>
+            </SimpleTooltip>
+          </>
         }
       >
         <SortableGroupContent
@@ -348,7 +360,10 @@ export function GroupResource({
         {(provided) => (
           <div ref={provided.innerRef} {...provided.droppableProps} className="flex flex-col gap-3">
             {sortedGroups.map(
-              ({ id: groupId, name, policy, policyParams, nodes: groupNodes, subscriptions: groupSubscriptions }, index) => (
+              (
+                { id: groupId, name, policy, policyParams, nodes: groupNodes, subscriptions: groupSubscriptions },
+                index,
+              ) => (
                 <Draggable key={groupId} draggableId={`group-${groupId}`} index={index}>
                   {(draggableProvided, snapshot) => (
                     <div

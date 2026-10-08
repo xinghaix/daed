@@ -1,13 +1,12 @@
+import type { NodeLatencyProbeResult } from '~/apis'
 import type { QRCodeModalRef } from '~/components/QRCodeModal'
 import type { SubscriptionsQuery } from '~/schemas/gql/graphql'
 import { Droppable } from '@hello-pangea/dnd'
 import dayjs from 'dayjs'
-import { CloudCog, CloudUpload, Download, Eye, Gauge, Pencil } from 'lucide-react'
+import { CloudCog, CloudUpload, Download, Eye, Pencil } from 'lucide-react'
 import { Fragment, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
 import {
-  type NodeLatencyProbeResult,
   useImportSubscriptionsMutation,
   useRemoveSubscriptionsMutation,
   useSubscriptionsQuery,
@@ -19,6 +18,8 @@ import {
 import { DraggableResourceBadge } from '~/components/DraggableResourceBadge'
 import { EditSubscriptionFormModal } from '~/components/EditSubscriptionFormModal'
 import { ImportResourceFormModal } from '~/components/ImportResourceFormModal'
+import { LatencyBadge } from '~/components/LatencyBadge'
+import { LatencyTestButton } from '~/components/LatencyTestButton'
 import { QRCodeModal } from '~/components/QRCodeModal'
 import { Section } from '~/components/Section'
 import { SortableSubscriptionCard } from '~/components/SortableSubscriptionCard'
@@ -28,20 +29,15 @@ import { SimpleTooltip } from '~/components/ui/tooltip'
 import { UpdateSubscriptionAction } from '~/components/UpdateSubscriptionAction'
 import { useDisclosure } from '~/hooks'
 import { cn } from '~/lib/utils'
-import { formatLatencyLabel } from '~/utils/latency'
 
 export function SubscriptionResource({
   sortedSubscriptions,
   nodeLatencies,
-  testingLatencies,
   lastLatencyProbeAt,
-  onTestAllNodeLatencies,
 }: {
   sortedSubscriptions: SubscriptionsQuery['subscriptions']
   nodeLatencies?: Record<string, NodeLatencyProbeResult>
-  testingLatencies?: boolean
   lastLatencyProbeAt?: string | null
-  onTestAllNodeLatencies: () => Promise<void>
 }) {
   const { t } = useTranslation()
 
@@ -81,7 +77,9 @@ export function SubscriptionResource({
       actions={
         <Fragment>
           {sortedSubscriptions.length > 0 && (
-            <SimpleTooltip
+            <LatencyTestButton
+              variant="section"
+              target={{ kind: 'all' }}
               label={
                 lastLatencyProbeAt
                   ? t('latency.testAllNodesWithStatus', {
@@ -90,21 +88,7 @@ export function SubscriptionResource({
                     })
                   : t('latency.testAllNodes')
               }
-            >
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => {
-                  onTestAllNodeLatencies().catch((error) => {
-                    console.error('Failed to test node latencies', error)
-                    toast.error(error instanceof Error ? error.message : t('latency.unavailable'))
-                  })
-                }}
-                loading={testingLatencies}
-              >
-                <Gauge className="h-4 w-4" />
-              </Button>
-            </SimpleTooltip>
+            />
           )}
           {sortedSubscriptions.length > 2 && (
             <SimpleTooltip label={t('actions.updateAll')}>
@@ -140,6 +124,11 @@ export function SubscriptionResource({
                   leftSection={`${nodes.edges.length} ${t('node')}`}
                   actions={
                     <Fragment>
+                      <LatencyTestButton
+                        target={{ kind: 'subscription', id: subscriptionID }}
+                        nodeIds={nodes.edges.map(({ id }) => id)}
+                        label={t('latency.testSubscription')}
+                      />
                       <SimpleTooltip label={t('actions.edit')}>
                         <Button
                           variant="ghost"
@@ -211,7 +200,14 @@ export function SubscriptionResource({
                                   id={`subscription-node-${id}`}
                                   index={nodeIndex}
                                   name={name}
-                                  meta={formatLatencyLabel(nodeLatencies?.[id], t)}
+                                  meta={<LatencyBadge nodeId={id} result={nodeLatencies?.[id]} />}
+                                  actions={
+                                    <LatencyTestButton
+                                      variant="badge"
+                                      target={{ kind: 'nodes', ids: [id] }}
+                                      label={t('latency.testNode')}
+                                    />
+                                  }
                                 >
                                   {name}
                                 </DraggableResourceBadge>

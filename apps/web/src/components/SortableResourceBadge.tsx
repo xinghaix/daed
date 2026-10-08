@@ -13,6 +13,7 @@ export function SortableResourceBadge({
   protocol,
   address,
   meta,
+  actions,
   onRemove,
   children,
 }: {
@@ -22,6 +23,8 @@ export function SortableResourceBadge({
   protocol?: string | null
   address?: string | null
   meta?: React.ReactNode
+  /** Extra buttons shown before the remove button. */
+  actions?: React.ReactNode
   onRemove?: () => void
   children?: React.ReactNode
 }) {
@@ -59,6 +62,8 @@ export function SortableResourceBadge({
       </div>
 
       {meta && <span className="shrink-0 text-[10px] font-medium text-primary">{meta}</span>}
+
+      {actions}
 
       {/* Remove button */}
       {onRemove && (

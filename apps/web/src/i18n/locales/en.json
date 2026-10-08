@@ -248,7 +248,16 @@
     "testAllNodesWithStatus": "Test all node latencies · Last tested at {{ time }} · {{ count }} nodes measured",
     "nodesMeasured": "{{ count }} nodes measured",
     "failed": "Failed",
-    "unavailable": "Unavailable"
+    "unavailable": "Unavailable",
+    "testing": "testing…",
+    "notTested": "not tested",
+    "notApplicable": "not applicable (UDP-only protocol)",
+    "notApplicableShort": "N/A",
+    "testNode": "Test latency (PING / HTTP)",
+    "testSubscription": "Test latency of all nodes in this subscription",
+    "testGroup": "Test latency of all nodes in this group",
+    "testFailed": "Latency test failed: {{ message }}",
+    "legend": "PING: direct TCP connect to the server; HTTP: request to the check URL through the node"
   },
   "link": "Link",
   "logLevel": "Log Level",

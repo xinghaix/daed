@@ -1,7 +1,7 @@
-import type { NodeLatencyProbeResult } from './mutation'
+import type { NodeLatencyProbeResult } from './latency'
 import type { GQLClientInterface } from '~/contexts'
-
 import { useQuery } from '@tanstack/react-query'
+
 import {
   QUERY_KEY_CONFIG,
   QUERY_KEY_DNS,
@@ -17,6 +17,7 @@ import {
 } from '~/constants'
 import { useGQLQueryClient } from '~/contexts'
 import { graphql } from '~/schemas/gql'
+import { NODE_LATENCY_FIELDS } from './latency'
 
 export function getModeRequest(gqlClient: GQLClientInterface) {
   return async () => {
@@ -221,11 +222,7 @@ export function useNodeLatenciesQuery(refetchIntervalMs: number) {
         `
           query NodeLatencies {
             nodeLatencies {
-              id
-              latencyMs
-              alive
-              testedAt
-              message
+              ${NODE_LATENCY_FIELDS}
             }
           }
         `,

@@ -13,7 +13,6 @@ import {
   useNodeLatenciesQuery,
   useNodesQuery,
   useSubscriptionsQuery,
-  useTestNodeLatenciesMutation,
 } from '~/apis'
 import type { NodeLatencyProbeResult } from '~/apis'
 import { DraggableResourceType } from '~/constants'
@@ -44,7 +43,6 @@ export function OrchestratePage() {
   const groupAddNodesMutation = useGroupAddNodesMutation()
   const groupAddSubscriptionsMutation = useGroupAddSubscriptionsMutation()
   const groupDelNodesMutation = useGroupDelNodesMutation()
-  const testNodeLatenciesMutation = useTestNodeLatenciesMutation()
 
   const [draggingResource, setDraggingResource] = useState<DraggingResource | null>(null)
   const [isDragging, setIsDragging] = useState(false)
@@ -642,11 +640,7 @@ export function OrchestratePage() {
           <SubscriptionResource
             sortedSubscriptions={sortedSubscriptions}
             nodeLatencies={nodeLatencies}
-            testingLatencies={testNodeLatenciesMutation.isPending}
             lastLatencyProbeAt={lastLatencyProbeAt}
-            onTestAllNodeLatencies={async () => {
-              await testNodeLatenciesMutation.mutateAsync(undefined)
-            }}
           />
         </div>
       </DragDropContext>

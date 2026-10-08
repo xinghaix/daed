@@ -248,7 +248,16 @@
     "testAllNodesWithStatus": "测试所有节点延迟 · 最近测速时间 {{ time }} · 已测速 {{ count }} 个节点",
     "nodesMeasured": "已测速 {{ count }} 个节点",
     "failed": "失败",
-    "unavailable": "不可用"
+    "unavailable": "不可用",
+    "testing": "测试中…",
+    "notTested": "未测试",
+    "notApplicable": "不适用（仅 UDP 协议）",
+    "notApplicableShort": "N/A",
+    "testNode": "测试延迟（PING / HTTP）",
+    "testSubscription": "测试订阅内所有节点延迟",
+    "testGroup": "测试分组内所有节点延迟",
+    "testFailed": "延迟测试失败：{{ message }}",
+    "legend": "PING：直连服务器 TCP 握手；HTTP：经节点请求测速地址"
   },
   "link": "链接",
   "logLevel": "日志等级",

@@ -182,6 +182,22 @@ export type InterfaceFlag = {
   up: Scalars['Boolean']['output']
 }
 
+export type LatencyProbe = {
+  __typename?: 'LatencyProbe'
+  latencyMs?: Maybe<Scalars['Int']['output']>
+  /** message explains a failure, e.g. "HTTP 404", "timeout". */
+  message?: Maybe<Scalars['String']['output']>
+  ok: Scalars['Boolean']['output']
+  /**
+   * pending is true while this method is being measured; the other fields
+   * then hold the previous result.
+   */
+  pending: Scalars['Boolean']['output']
+  /** supported is false when the method does not apply, e.g. PING for UDP-only protocols. */
+  supported: Scalars['Boolean']['output']
+  testedAt?: Maybe<Scalars['Time']['output']>
+}
+
 export type Mutation = {
   __typename?: 'Mutation'
   /** createConfig creates a global config. Null arguments will be converted to default value. */
@@ -244,6 +260,12 @@ export type Mutation = {
   tagNode: Scalars['Int']['output']
   /** tagSubscription is to give the subscription a new tag. */
   tagSubscription: Scalars['Int']['output']
+  /** testGroupLatencies probes every node of the group, including nodes matched by its subscriptions. */
+  testGroupLatencies: Array<NodeLatency>
+  /** testNodeLatencies is to trigger latency probes for all or selected nodes. */
+  testNodeLatencies: Array<NodeLatency>
+  /** testSubscriptionLatencies probes every node of the subscription. */
+  testSubscriptionLatencies: Array<NodeLatency>
   /** updateAvatar update avatar for current user. Remove avatar if avatar is null. Blob base64 encoded image is recommended. */
   updateAvatar: Scalars['Int']['output']
   /** updateConfig allows to partially update global config with given id. */
@@ -410,6 +432,18 @@ export type MutationTagSubscriptionArgs = {
   tag: Scalars['String']['input']
 }
 
+export type MutationTestGroupLatenciesArgs = {
+  id: Scalars['ID']['input']
+}
+
+export type MutationTestNodeLatenciesArgs = {
+  ids?: InputMaybe<Array<Scalars['ID']['input']>>
+}
+
+export type MutationTestSubscriptionLatenciesArgs = {
+  id: Scalars['ID']['input']
+}
+
 export type MutationUpdateAvatarArgs = {
   avatar?: InputMaybe<Scalars['String']['input']>
 }
@@ -480,6 +514,22 @@ export type NodeImportResult = {
   node?: Maybe<Node>
 }
 
+export type NodeLatency = {
+  __typename?: 'NodeLatency'
+  alive: Scalars['Boolean']['output']
+  /** http is a request to the selected config's tcp_check_url through the node. */
+  http?: Maybe<LatencyProbe>
+  id: Scalars['ID']['output']
+  /** latencyMs, alive, testedAt and message mirror the http probe. */
+  latencyMs?: Maybe<Scalars['Int']['output']>
+  message?: Maybe<Scalars['String']['output']>
+  /** ping is a direct TCP connect to the node's server (not proxied). */
+  ping?: Maybe<LatencyProbe>
+  testedAt: Scalars['Time']['output']
+  /** testing is true while a probe of this node is running. */
+  testing: Scalars['Boolean']['output']
+}
+
 export type NodesConnection = {
   __typename?: 'NodesConnection'
   edges: Array<Node>
@@ -529,6 +579,8 @@ export type Query = {
   healthCheck: Scalars['Int']['output']
   /** jsonStorage get given paths from user related json storage. Empty paths is to get all. Refer to https://github.com/tidwall/gjson */
   jsonStorage: Array<Scalars['String']['output']>
+  /** nodeLatencies returns cached latency results; stale ones are re-probed unless cachedOnly is true. */
+  nodeLatencies: Array<NodeLatency>
   nodes: NodesConnection
   numberUsers: Scalars['Int']['output']
   parsedDns: DaeDns
@@ -559,6 +611,11 @@ export type QueryGroupsArgs = {
 
 export type QueryJsonStorageArgs = {
   paths?: InputMaybe<Array<Scalars['String']['input']>>
+}
+
+export type QueryNodeLatenciesArgs = {
+  cachedOnly?: InputMaybe<Scalars['Boolean']['input']>
+  ids?: InputMaybe<Array<Scalars['ID']['input']>>
 }
 
 export type QueryNodesArgs = {
