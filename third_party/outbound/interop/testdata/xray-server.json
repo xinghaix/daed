@@ -148,6 +148,35 @@
      ]
     }
    }
+  },
+  {
+   "port": 10020,
+   "listen": "127.0.0.1",
+   "protocol": "vless",
+   "settings": {
+    "clients": [
+     {
+      "id": "8d4a4f5e-6b1c-4f67-9a3e-0f5b2b9c1d2e",
+      "flow": "xtls-rprx-vision"
+     }
+    ],
+    "decryption": "none"
+   },
+   "streamSettings": {
+    "network": "tcp",
+    "security": "reality",
+    "realitySettings": {
+     "dest": "127.0.0.1:18443",
+     "serverNames": [
+      "example.com"
+     ],
+     "privateKey": "aNVWFmPLaHjHJE0MuFA8G79undUA40fEjrJK67IVpmQ",
+     "shortIds": [
+      "",
+      "6ba85179e30d4fc2"
+     ]
+    }
+   }
   }
  ],
  "outbounds": [
@@ -157,7 +186,6 @@
     "finalRules": [
      {
       "action": "allow",
-      "network": "tcp",
       "ip": [
        "127.0.0.1"
       ]
