@@ -1,0 +1,57 @@
+/*
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * Copyright (c) 2023, daeuniverse Organization <team@v2raya.org>
+ */
+
+package db
+
+import (
+	"github.com/daeuniverse/dae/pkg/config_parser"
+)
+
+type Group struct {
+	ID           uint   `gorm:"primaryKey;autoIncrement"`
+	Name         string `gorm:"not null;unique;index"`
+	Policy       string `gorm:"not null"`
+	PolicyParams []GroupPolicyParam
+	Node         []Node              `gorm:"many2many:group_nodes;"`
+	SubscriptionBindings []GroupSubscription `gorm:"foreignKey:GroupID"`
+
+	Version  uint `gorm:"not null;default:0"`
+	SystemID *uint
+}
+
+type GroupSubscription struct {
+	GroupID         uint   `gorm:"primaryKey;autoIncrement:false"`
+	SubscriptionID  uint   `gorm:"primaryKey;autoIncrement:false"`
+	NameFilterRegex *string
+
+	Group        Group
+	Subscription Subscription
+}
+
+func (GroupSubscription) TableName() string {
+	return "group_subscriptions"
+}
+
+type GroupPolicyParam struct {
+	ID    uint   `gorm:"primaryKey;autoIncrement"`
+	Key   string `gorm:"not null"`
+	Value string `gorm:"not null"`
+
+	// Foreign keys.
+	GroupID uint
+	Group   Group
+}
+
+func (m *GroupPolicyParam) Marshal() *config_parser.Param {
+	return &config_parser.Param{
+		Key: m.Key,
+		Val: m.Value,
+	}
+}
+
+func (m *GroupPolicyParam) Unmarshal(param *config_parser.Param) {
+	m.Key = param.Key
+	m.Value = param.Val
+}

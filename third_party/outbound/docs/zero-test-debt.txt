@@ -1,0 +1,24 @@
+# Packages with no test files, as of c785b1a.
+# Regenerate with: bash scripts/check-test-coverage.sh --list
+#
+# This ledger is a ratchet: it may only shrink. Adding tests to a listed
+# package? Delete its line in the same commit. Adding a new package without
+# tests? The gate will fail until it is listed here, which is the point.
+
+github.com/daeuniverse/outbound/dialer/http
+github.com/daeuniverse/outbound/dialer/shadowsocksr
+github.com/daeuniverse/outbound/dialer/socks
+github.com/daeuniverse/outbound/dialer/trojan
+github.com/daeuniverse/outbound/pkg/cert
+github.com/daeuniverse/outbound/pkg/fastrand
+github.com/daeuniverse/outbound/pkg/gun_proto
+github.com/daeuniverse/outbound/pkg/logger
+github.com/daeuniverse/outbound/pkg/zeroalloc/bufio
+github.com/daeuniverse/outbound/pool/bytes
+github.com/daeuniverse/outbound/protocol/hysteria2/errors
+github.com/daeuniverse/outbound/protocol/hysteria2/internal/pmtud
+github.com/daeuniverse/outbound/protocol/hysteria2/internal/utils
+github.com/daeuniverse/outbound/protocol/infra/bench
+github.com/daeuniverse/outbound/protocol/infra/socks
+github.com/daeuniverse/outbound/protocol/tuic/congestion
+github.com/daeuniverse/outbound/transport/shadowsocksr/internal/crypto

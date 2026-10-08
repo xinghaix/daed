@@ -1,0 +1,53 @@
+/*
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * Copyright (c) 2023, daeuniverse Organization <team@v2raya.org>
+ */
+
+package general
+
+func Schema() (string, error) {
+	return `
+type General {
+  dae: Dae!
+  interfaces(up:Boolean): [Interface!]!
+  runtimeOverview(windowSec:Int!, maxPoints:Int!): RuntimeOverview!
+  schema: String!
+}
+type Dae {
+  running: Boolean!
+  # modified indicates whether the running config has been modified.
+  modified: Boolean!
+  version: String!
+}
+type Interface {
+  name: String!
+  flag: InterfaceFlag!
+  ifindex: Int!
+  ip(onlyGlobalScope:Boolean): [String!]!
+}
+type InterfaceFlag {
+  up: Boolean!
+  default: [DefaultRoute!]
+}
+type DefaultRoute {
+  ipVersion: String!
+  gateway: String
+  source: String
+}
+type RuntimeOverview {
+  updatedAt: Time!
+  uploadRate: Float!
+  downloadRate: Float!
+  uploadTotal: String!
+  downloadTotal: String!
+  activeConnections: Int!
+  udpSessions: Int!
+  samples: [RuntimeTrafficSample!]!
+}
+type RuntimeTrafficSample {
+  timestamp: Time!
+  uploadRate: Float!
+  downloadRate: Float!
+}
+`, nil
+}

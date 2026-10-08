@@ -1,0 +1,9 @@
+# Upstream revisions vendored into this repository as plain files.
+# Maintained by scripts/sync-upstream.sh -- see UPSTREAM.md.
+# Columns: name  url  branch  commit  prefix[,prefix...]
+# branch "-" means the commit is derived from another component
+# (dae_bpf_headers: the gitlink pinned by dae; outbound: the replace in dae's go.mod).
+dae-wing         https://github.com/daeuniverse/dae-wing         main  b089b568649f03f909477adb6c7db25535a58782  wing
+dae              https://github.com/daeuniverse/dae              main  e3fee8fbc68a65167af13b685ab0b958757e20ee  wing/dae-core
+dae_bpf_headers  https://github.com/daeuniverse/dae_bpf_headers  -     56937c66784879fe5e2ff89db5bc05aa061d594c  wing/dae-core/control/kern/headers,wing/dae-core/trace/kern/headers
+outbound         https://github.com/olicesx/outbound             -     cc86ced2e683b91387f2cde7cfcadcb5ac2adbc3  third_party/outbound

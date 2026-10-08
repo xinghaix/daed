@@ -1,0 +1,110 @@
+package http
+
+import (
+	"fmt"
+	"net"
+	"net/url"
+	"strconv"
+
+	"github.com/daeuniverse/outbound/common"
+	"github.com/daeuniverse/outbound/dialer"
+	"github.com/daeuniverse/outbound/netproxy"
+	"github.com/daeuniverse/outbound/protocol/http"
+)
+
+func init() {
+	dialer.FromLinkRegister("http", NewHTTP)
+	dialer.FromLinkRegister("https", NewHTTP)
+}
+
+type HTTP struct {
+	Name          string `json:"name"`
+	Server        string `json:"server"`
+	Port          int    `json:"port"`
+	Username      string `json:"username"`
+	Password      string `json:"password"`
+	SNI           string `json:"sni"`
+	Protocol      string `json:"protocol"`
+	AllowInsecure bool   `json:"allowInsecure"`
+}
+
+func NewHTTP(option *dialer.ExtraOption, nextDialer netproxy.Dialer, link string) (netproxy.Dialer, *dialer.Property, error) {
+	s, err := ParseHTTPURL(link)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w: %w", dialer.InvalidParameterErr, err)
+	}
+	return s.Dialer(option, nextDialer)
+}
+
+func ParseHTTPURL(link string) (data *HTTP, err error) {
+	u, err := url.Parse(link)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", dialer.InvalidParameterErr, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, fmt.Errorf("%w: unsupported scheme %q", dialer.InvalidParameterErr, u.Scheme)
+	}
+	pwd, _ := u.User.Password()
+	strPort := u.Port()
+	if strPort == "" {
+		switch u.Scheme {
+		case "http":
+			strPort = "80"
+		case "https":
+			strPort = "443"
+		}
+	}
+	port, err := strconv.Atoi(strPort)
+	if err != nil {
+		return nil, fmt.Errorf("error when parsing port: %w", err)
+	}
+	allowInsecure := dialer.AllowInsecureFromQuery(u.Query())
+	return &HTTP{
+		Name:          u.Fragment,
+		Server:        u.Hostname(),
+		Port:          port,
+		Username:      u.User.Username(),
+		Password:      pwd,
+		SNI:           u.Query().Get("sni"),
+		Protocol:      u.Scheme,
+		AllowInsecure: allowInsecure,
+	}, nil
+}
+
+func (s *HTTP) Dialer(option *dialer.ExtraOption, nextDialer netproxy.Dialer) (netproxy.Dialer, *dialer.Property, error) {
+	u := s.URL()
+	d, err := http.NewHTTPProxy(&u, nextDialer)
+	if err != nil {
+		return nil, nil, err
+	}
+	return d, &dialer.Property{
+		Name:     s.Name,
+		Address:  net.JoinHostPort(s.Server, strconv.Itoa(s.Port)),
+		Protocol: s.Protocol,
+		Link:     u.String(),
+	}, nil
+}
+
+func (s *HTTP) URL() url.URL {
+	u := url.URL{
+		Scheme:   s.Protocol,
+		Host:     net.JoinHostPort(s.Server, strconv.Itoa(s.Port)),
+		Fragment: s.Name,
+	}
+	if s.SNI != "" {
+		u.RawQuery = url.Values{"sni": []string{s.SNI}, "allowInsecure": []string{common.BoolToString(s.AllowInsecure)}}.Encode()
+	}
+	if s.Username != "" {
+		if s.Password != "" {
+			u.User = url.UserPassword(s.Username, s.Password)
+		} else {
+			u.User = url.User(s.Username)
+		}
+	}
+	return u
+}
+
+func (s *HTTP) ExportToURL() string {
+	u := s.URL()
+	return u.String()
+}

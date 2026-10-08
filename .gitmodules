@@ -1,4 +1,0 @@
-[submodule "wing"]
-	path = wing
-	url = https://github.com/daeuniverse/dae-wing
-	branch = main

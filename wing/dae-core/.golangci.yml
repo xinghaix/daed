@@ -1,0 +1,33 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - errcheck
+    - gocritic
+    - ineffassign
+    - misspell
+    - unconvert
+  exclusions:
+    generated: strict
+    rules:
+      - path: ^control/bpf_stub\.go$
+        linters:
+          - unused
+      - path: ^control/netkit_linux\.go$
+        linters:
+          - unused
+      - path: ^control/netkit_netlink\.go$
+        linters:
+          - unused
+      # SA5011 in test files: staticcheck cannot prove that testing.T.Fatal /
+      # Fatalf terminates, so nil-guards followed by t.Fatal are flagged as
+      # possible nil dereferences. The guards are correct by construction.
+      - path: _test\.go$
+        linters:
+          - staticcheck
+        text: SA5011
+
+formatters:
+  enable:
+    - gofmt
