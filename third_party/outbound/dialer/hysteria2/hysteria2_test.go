@@ -7,12 +7,14 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -175,4 +177,41 @@ func writeTestCAPEM(t *testing.T) (string, *x509.Certificate) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 	return caPath, cert
+}
+
+func TestPinnedCertVerifierAcceptsLinkFormats(t *testing.T) {
+	leaf := []byte("leaf-cert")
+	sum := sha256.Sum256(leaf)
+	hexPin := hex.EncodeToString(sum[:])
+	var colon []string
+	for i := 0; i < len(hexPin); i += 2 {
+		colon = append(colon, strings.ToUpper(hexPin[i:i+2]))
+	}
+	for name, pin := range map[string]string{
+		"hex":          hexPin,
+		"upper-colon":  strings.Join(colon, ":"),
+		"base64":       base64.StdEncoding.EncodeToString(sum[:]),
+		"base64-raw":   base64.RawURLEncoding.EncodeToString(sum[:]),
+		"list":         strings.Repeat("0", 64) + "," + hexPin,
+		"spaced-colon": " " + strings.Join(colon, ":") + " ",
+	} {
+		if err := newPinnedCertVerifier(pin)([][]byte{leaf}, nil); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if err := newPinnedCertVerifier(base64.StdEncoding.EncodeToString(make([]byte, 32)))([][]byte{leaf}, nil); err == nil {
+		t.Error("wrong base64 pin accepted")
+	}
+}
+
+func TestParseHysteria2URLSingBoxStyle(t *testing.T) {
+	sum := sha256.Sum256([]byte("leaf"))
+	link := "hysteria2://pass@203.0.113.7:51859?sni=random.example&insecure=1&alpn=h3&pinSHA256=" + hex.EncodeToString(sum[:]) + "#sg-relay-hy2"
+	s, err := ParseHysteria2URL(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.Insecure || s.Sni != "random.example" || s.PinSHA256 == "" || s.Server != "203.0.113.7:51859" {
+		t.Fatalf("parsed %+v", s)
+	}
 }

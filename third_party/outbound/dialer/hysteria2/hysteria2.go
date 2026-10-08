@@ -123,25 +123,49 @@ func (s *Hysteria2) Dialer(option *dialer.ExtraOption, nextDialer netproxy.Diale
 	}, nil
 }
 
+// normalizeCertHash returns the lowercase hex form of a SHA-256 pin. Links
+// carry it as hex (optionally separated by ':' or '-', as openssl and
+// Hysteria print it) or as base64 of the 32-byte digest (as some sing-box
+// and Clash exporters do).
 func normalizeCertHash(hash string) string {
-	r := strings.ToLower(hash)
+	h := strings.TrimSpace(hash)
+	r := strings.ToLower(h)
 	r = strings.ReplaceAll(r, ":", "")
 	r = strings.ReplaceAll(r, "-", "")
+	if len(r) == sha256.Size*2 {
+		if _, err := hex.DecodeString(r); err == nil {
+			return r
+		}
+	}
+	for _, enc := range []*base64.Encoding{base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding} {
+		if b, err := enc.DecodeString(h); err == nil && len(b) == sha256.Size {
+			return hex.EncodeToString(b)
+		}
+	}
 	return r
 }
 
+// newPinnedCertVerifier accepts the leaf certificate when its SHA-256
+// matches one of the comma-separated pins.
 func newPinnedCertVerifier(pinSHA256 string) func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
-	nHash := normalizeCertHash(pinSHA256)
+	var pins []string
+	for _, pin := range strings.Split(pinSHA256, ",") {
+		if pin = strings.TrimSpace(pin); pin != "" {
+			pins = append(pins, normalizeCertHash(pin))
+		}
+	}
 	return func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
 		if len(rawCerts) == 0 {
 			return fmt.Errorf("no peer certificate provided")
 		}
 		hash := sha256.Sum256(rawCerts[0])
 		hashHex := hex.EncodeToString(hash[:])
-		if hashHex != nHash {
-			return fmt.Errorf("leaf certificate pin mismatch: %s != %s", hashHex, nHash)
+		for _, pin := range pins {
+			if hashHex == pin {
+				return nil
+			}
 		}
-		return nil
+		return fmt.Errorf("leaf certificate pin mismatch: %s not in %s", hashHex, strings.Join(pins, ","))
 	}
 }
 
