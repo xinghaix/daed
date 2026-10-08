@@ -380,10 +380,22 @@ func (r *MutationResolver) UpdateNode(args *struct {
 	return result, nil
 }
 
-func (r *MutationResolver) TestNodeLatencies(args *struct {
+func (r *MutationResolver) TestNodeLatencies(ctx context.Context, args *struct {
 	IDs *[]graphql.ID
 }) ([]*node.LatencyResolver, error) {
-	return node.TestLatencies(context.TODO(), args.IDs)
+	return node.TestLatencies(ctx, args.IDs)
+}
+
+func (r *MutationResolver) TestSubscriptionLatencies(ctx context.Context, args *struct {
+	ID graphql.ID
+}) ([]*node.LatencyResolver, error) {
+	return node.TestSubscriptionLatencies(ctx, args.ID)
+}
+
+func (r *MutationResolver) TestGroupLatencies(ctx context.Context, args *struct {
+	ID graphql.ID
+}) ([]*node.LatencyResolver, error) {
+	return node.TestGroupLatencies(ctx, args.ID)
 }
 
 func (r *MutationResolver) RemoveNodes(args *struct {

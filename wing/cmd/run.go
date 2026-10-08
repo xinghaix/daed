@@ -234,7 +234,9 @@ func auth(next http.Handler) http.Handler {
 			}
 			return []byte(user.JwtSecret), nil
 		})
-		ctx := context.Background()
+		// Derive from the request context so long operations (e.g. latency
+		// tests) are cancelled when the client disconnects.
+		ctx := r.Context()
 		if err == nil {
 			if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
 				if expireAt, err := token.Claims.GetExpirationTime(); err == nil && time.Now().Before(expireAt.Time) {

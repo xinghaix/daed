@@ -49,7 +49,7 @@ func TestQueryLatenciesScopeAndMissingConfig(t *testing.T) {
 	storeLatencyResults([]*LatencyResolver{{NodeID: nodes[0].ID, AliveVal: true}})
 	// Without a selected config nothing can be probed: the cached entry is
 	// returned and the unprobed nodes are omitted rather than reported dead.
-	results, err := QueryLatencies(ctx, nil)
+	results, err := QueryLatencies(ctx, nil, false)
 	if err != nil || len(results) != 1 || results[0].NodeID != nodes[0].ID || !results[0].AliveVal {
 		t.Fatalf("omitted IDs without config: results=%v err=%v", results, err)
 	}
@@ -57,7 +57,7 @@ func TestQueryLatenciesScopeAndMissingConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	ids := []graphql.ID{common.EncodeCursor(nodes[1].ID)}
-	results, err = QueryLatencies(ctx, &ids)
+	results, err = QueryLatencies(ctx, &ids, false)
 	if err != nil || len(results) != 1 || results[0].NodeID != nodes[1].ID || results[0].TestedAtV.IsZero() {
 		t.Fatalf("scoped probe: results=%v err=%v", results, err)
 	}
@@ -68,12 +68,12 @@ func TestQueryLatenciesScopeAndMissingConfig(t *testing.T) {
 	if !cached[nodes[0].ID].AliveVal {
 		t.Fatal("scoped query replaced a fresh unrelated result")
 	}
-	results, err = QueryLatencies(ctx, nil)
+	results, err = QueryLatencies(ctx, nil, false)
 	if err != nil || len(results) != 3 || results[2].TestedAtV.IsZero() {
 		t.Fatalf("omitted IDs must probe missing nodes: results=%v err=%v", results, err)
 	}
 	empty := []graphql.ID{}
-	results, err = QueryLatencies(ctx, &empty)
+	results, err = QueryLatencies(ctx, &empty, false)
 	if err != nil || len(results) != 0 {
 		t.Fatalf("explicit empty IDs: results=%v err=%v", results, err)
 	}

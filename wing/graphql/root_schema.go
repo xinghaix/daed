@@ -40,7 +40,8 @@ type Query {
 	groups(id: ID): [Group!]! @hasRole(role: ADMIN)
 	group(name: String!): Group! @hasRole(role: ADMIN)
 	nodes(id: ID, subscriptionId: ID, first: Int, after: ID): NodesConnection! @hasRole(role: ADMIN)
-	nodeLatencies(ids: [ID!]): [NodeLatency!]! @hasRole(role: ADMIN)
+	# nodeLatencies returns cached latency results; stale ones are re-probed unless cachedOnly is true.
+	nodeLatencies(ids: [ID!], cachedOnly: Boolean): [NodeLatency!]! @hasRole(role: ADMIN)
 	general: General! @hasRole(role: ADMIN)
 }
 type Mutation {
@@ -105,6 +106,10 @@ type Mutation {
 
 	# testNodeLatencies is to trigger latency probes for all or selected nodes.
 	testNodeLatencies(ids: [ID!]): [NodeLatency!]! @hasRole(role: ADMIN)
+	# testSubscriptionLatencies probes every node of the subscription.
+	testSubscriptionLatencies(id: ID!): [NodeLatency!]! @hasRole(role: ADMIN)
+	# testGroupLatencies probes every node of the group, including nodes matched by its subscriptions.
+	testGroupLatencies(id: ID!): [NodeLatency!]! @hasRole(role: ADMIN)
 
 	# removeNodes is to remove nodes that have no subscription ID.
 	removeNodes(ids: [ID!]!): Int! @hasRole(role: ADMIN)

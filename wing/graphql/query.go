@@ -149,9 +149,10 @@ func (r *queryResolver) General() (*general.Resolver, error) {
 }
 
 func (r *queryResolver) NodeLatencies(ctx context.Context, args *struct {
-	IDs *[]graphql.ID
+	IDs        *[]graphql.ID
+	CachedOnly *bool
 }) ([]*node.LatencyResolver, error) {
-	return node.QueryLatencies(ctx, args.IDs)
+	return node.QueryLatencies(ctx, args.IDs, args.CachedOnly != nil && *args.CachedOnly)
 }
 
 func (r *queryResolver) Configs(args *struct {

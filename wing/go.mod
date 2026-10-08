@@ -20,6 +20,7 @@ require (
 	github.com/tidwall/sjson v1.2.5
 	github.com/vearutop/statigz v1.3.0
 	github.com/vishvananda/netlink v1.3.1
+	go.uber.org/goleak v1.3.0
 	golang.org/x/crypto v0.48.0
 	golang.org/x/sys v0.43.0
 	golang.org/x/tools v0.42.0

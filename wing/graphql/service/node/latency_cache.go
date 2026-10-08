@@ -20,7 +20,14 @@ import (
 type latencyCacheEntry struct {
 	result    *LatencyResolver
 	updatedAt time.Time
+	// gen identifies the probe currently allowed to update this entry while
+	// it is pending, so a cancelled probe cannot clobber a newer one.
+	gen uint64
 }
+
+// maxLatencyCacheEntries bounds the cache; the oldest entries are evicted
+// first. Entries of removed nodes are also pruned on full queries.
+const maxLatencyCacheEntries = 4096
 
 var nodeLatencyCache = struct {
 	mu        sync.RWMutex
@@ -44,6 +51,8 @@ func cloneLatencyResolver(resolver *LatencyResolver) *LatencyResolver {
 		message := *resolver.MessageV
 		clone.MessageV = &message
 	}
+	clone.PingV = cloneProbeResolver(resolver.PingV)
+	clone.HttpV = cloneProbeResolver(resolver.HttpV)
 	return &clone
 }
 
@@ -56,8 +65,131 @@ func storeLatencyResults(results []*LatencyResolver) {
 		if result == nil {
 			continue
 		}
-		nodeLatencyCache.items[result.NodeID] = latencyCacheEntry{
-			result: cloneLatencyResolver(result), updatedAt: now,
+		entry := nodeLatencyCache.items[result.NodeID]
+		entry.result = cloneLatencyResolver(result)
+		entry.updatedAt = now
+		nodeLatencyCache.items[result.NodeID] = entry
+	}
+	evictOldestLatencyEntriesLocked()
+}
+
+// evictOldestLatencyEntriesLocked keeps the cache within its bound.
+func evictOldestLatencyEntriesLocked() {
+	for len(nodeLatencyCache.items) > maxLatencyCacheEntries {
+		var oldestID uint
+		var oldest time.Time
+		first := true
+		for id, entry := range nodeLatencyCache.items {
+			if first || entry.updatedAt.Before(oldest) {
+				oldestID, oldest, first = id, entry.updatedAt, false
+			}
+		}
+		delete(nodeLatencyCache.items, oldestID)
+	}
+}
+
+// beginLatencyProbe marks both methods of a node as pending (keeping the
+// previous values for display) and returns the generation that may update
+// the entry.
+func beginLatencyProbe(nodeID uint, gen uint64, pingApplicable bool) {
+	nodeLatencyCache.mu.Lock()
+	defer nodeLatencyCache.mu.Unlock()
+	entry := nodeLatencyCache.items[nodeID]
+	if entry.result == nil {
+		entry.result = &LatencyResolver{NodeID: nodeID}
+	} else {
+		entry.result = cloneLatencyResolver(entry.result)
+	}
+	if entry.result.PingV == nil {
+		entry.result.PingV = &ProbeResolver{SupportedV: pingApplicable}
+	}
+	if entry.result.HttpV == nil {
+		entry.result.HttpV = &ProbeResolver{SupportedV: true}
+	}
+	entry.result.PingV.PendingV = true
+	entry.result.HttpV.PendingV = true
+	entry.gen = gen
+	nodeLatencyCache.items[nodeID] = entry
+	evictOldestLatencyEntriesLocked()
+}
+
+// storeLatencyProbe publishes one method's result for an in-flight probe.
+func storeLatencyProbe(nodeID uint, gen uint64, method string, result *ProbeResolver) {
+	nodeLatencyCache.mu.Lock()
+	defer nodeLatencyCache.mu.Unlock()
+	entry, ok := nodeLatencyCache.items[nodeID]
+	if !ok || entry.gen != gen || entry.result == nil {
+		return
+	}
+	entry.result = cloneLatencyResolver(entry.result)
+	switch method {
+	case latencyMethodPing:
+		entry.result.PingV = cloneProbeResolver(result)
+	case latencyMethodHTTP:
+		entry.result.HttpV = cloneProbeResolver(result)
+	}
+	entry.result.syncLegacyFields()
+	nodeLatencyCache.items[nodeID] = entry
+}
+
+// finishLatencyProbe stores the final result of a probe generation.
+func finishLatencyProbe(gen uint64, result *LatencyResolver) {
+	nodeLatencyCache.mu.Lock()
+	defer nodeLatencyCache.mu.Unlock()
+	entry, ok := nodeLatencyCache.items[result.NodeID]
+	if ok && entry.gen != gen {
+		return
+	}
+	entry.result = cloneLatencyResolver(result)
+	entry.updatedAt = time.Now()
+	nodeLatencyCache.items[result.NodeID] = entry
+	evictOldestLatencyEntriesLocked()
+}
+
+// abortLatencyProbe clears the pending flags of a cancelled probe and keeps
+// whatever results it already published.
+func abortLatencyProbe(nodeID uint, gen uint64) {
+	nodeLatencyCache.mu.Lock()
+	defer nodeLatencyCache.mu.Unlock()
+	entry, ok := nodeLatencyCache.items[nodeID]
+	if !ok || entry.gen != gen || entry.result == nil {
+		return
+	}
+	entry.result = cloneLatencyResolver(entry.result)
+	for _, probe := range []*ProbeResolver{entry.result.PingV, entry.result.HttpV} {
+		if probe != nil {
+			probe.PendingV = false
+		}
+	}
+	if entry.result.PingV != nil && entry.result.PingV.TestedAtV.IsZero() &&
+		entry.result.HttpV != nil && entry.result.HttpV.TestedAtV.IsZero() {
+		// Nothing was ever measured: forget the placeholder.
+		delete(nodeLatencyCache.items, nodeID)
+		return
+	}
+	nodeLatencyCache.items[nodeID] = entry
+}
+
+// ForgetLatencies drops cached results of removed nodes.
+func ForgetLatencies(nodeIDs []uint) {
+	nodeLatencyCache.mu.Lock()
+	defer nodeLatencyCache.mu.Unlock()
+	for _, id := range nodeIDs {
+		delete(nodeLatencyCache.items, id)
+	}
+}
+
+// pruneLatencyCache drops entries whose node no longer exists.
+func pruneLatencyCache(existing []db.Node) {
+	keep := make(map[uint]struct{}, len(existing))
+	for _, node := range existing {
+		keep[node.ID] = struct{}{}
+	}
+	nodeLatencyCache.mu.Lock()
+	defer nodeLatencyCache.mu.Unlock()
+	for id := range nodeLatencyCache.items {
+		if _, ok := keep[id]; !ok {
+			delete(nodeLatencyCache.items, id)
 		}
 	}
 }
@@ -140,6 +272,14 @@ func loadRuntimeLatencyResults(ctx context.Context) (map[uint]*LatencyResolver, 
 				AliveVal:   snapshot.Alive,
 				TestedAtV:  snapshot.CheckedAt,
 				MessageV:   stringPtr(snapshot.Message),
+				// dae's own health check is an HTTP check over the node.
+				HttpV: &ProbeResolver{
+					OkV:        snapshot.Alive,
+					LatencyMsV: snapshot.LatencyMs,
+					MessageV:   optionalString(snapshot.Message),
+					TestedAtV:  snapshot.CheckedAt,
+					SupportedV: true,
+				},
 			})
 		}
 	}
@@ -166,13 +306,14 @@ func selectedCheckInterval(ctx context.Context) (time.Duration, error) {
 }
 
 func refreshLatencyCache(ctx context.Context, nodes []db.Node, all bool) error {
-	option, err := latencyProbeOption(ctx)
+	env, err := newLatencyProbeEnv(ctx)
 	if err != nil {
 		return err
 	}
 
-	results := testLatencyResultsForNodes(option, nodes)
-	storeLatencyResults(results)
+	if _, err := runLatencyProbes(ctx, env, nodes); err != nil {
+		return err
+	}
 
 	if all {
 		if ctl, err := dae.ControlPlane(); err == nil {
@@ -216,13 +357,27 @@ func stringPtr(value string) *string {
 	return &value
 }
 
-func QueryLatencies(ctx context.Context, ids *[]graphql.ID) ([]*LatencyResolver, error) {
+func optionalString(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+// QueryLatencies returns cached latency results. Unless cachedOnly is set,
+// nodes whose result is older than check_interval are probed first.
+func QueryLatencies(ctx context.Context, ids *[]graphql.ID, cachedOnly bool) ([]*LatencyResolver, error) {
 	nodes, err := latencyProbeNodes(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
-	if err := refreshLatencyCacheIfNeeded(ctx, nodes, ids == nil); err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, err
+	if ids == nil {
+		pruneLatencyCache(nodes)
+	}
+	if !cachedOnly {
+		if err := refreshLatencyCacheIfNeeded(ctx, nodes, ids == nil); err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
 	}
 
 	merged := snapshotCachedLatencyResults()

@@ -138,6 +138,9 @@ func Remove(ctx context.Context, _ids []graphql.ID) (n int32, err error) {
 		} else {
 			tx.Rollback()
 		}
+		if err == nil {
+			ForgetLatencies(ids)
+		}
 	}()
 	var nodes []db.Node
 	if err = tx.Where("id IN ? AND subscription_id IS NULL", ids).Find(&nodes).Error; err != nil {
